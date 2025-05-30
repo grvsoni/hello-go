@@ -2,10 +2,8 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_IMAGE = 'hello-go'
+        DOCKER_IMAGE = 'grvsoni/hello-go'
         DOCKER_TAG = "${BUILD_NUMBER}"
-        KUBE_NAMESPACE = 'hello-go'
-        KUBE_CONFIG = credentials('k8s-config')
     }
     
     stages {
@@ -27,41 +25,29 @@ pipeline {
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Build and Push Docker Image') {
             steps {
                 script {
                     try {
+                        // Build the image
                         sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
                         sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
-                    } catch (Exception e) {
-                        echo "Failed to build Docker image: ${e.message}"
-                        throw e
-                    }
-                }
-            }
-        }
-        
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    try {
-                        // Create namespace if it doesn't exist
-                        sh """
-                            kubectl --kubeconfig=${KUBE_CONFIG} create namespace ${KUBE_NAMESPACE} --dry-run=client -o yaml | kubectl --kubeconfig=${KUBE_CONFIG} apply -f -
-                        """
                         
-                        // Update deployment with new image
-                        sh """
-                            sed -i 's|image: hello-go:latest|image: ${DOCKER_IMAGE}:${DOCKER_TAG}|g' k8s/deployment.yaml
-                            kubectl --kubeconfig=${KUBE_CONFIG} apply -f k8s/deployment.yaml
-                        """
+                        // Login to DockerHub
+                        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                       usernameVariable: 'DOCKER_USER', 
+                                                       passwordVariable: 'DOCKER_PASS')]) {
+                            sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                        }
                         
-                        // Wait for deployment to roll out
-                        sh """
-                            kubectl --kubeconfig=${KUBE_CONFIG} rollout status deployment/hello-go -n ${KUBE_NAMESPACE}
-                        """
+                        // Push the images
+                        sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        sh "docker push ${DOCKER_IMAGE}:latest"
+                        
+                        // Logout from DockerHub
+                        sh "docker logout"
                     } catch (Exception e) {
-                        echo "Failed to deploy to Kubernetes: ${e.message}"
+                        echo "Failed to build or push Docker image: ${e.message}"
                         throw e
                     }
                 }
