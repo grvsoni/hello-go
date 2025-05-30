@@ -1,6 +1,7 @@
 package main
 
 import (
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"testing"
