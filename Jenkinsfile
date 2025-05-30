@@ -15,6 +15,40 @@ pipeline {
             }
         }
         
+        stage('Security Scan') {
+            steps {
+                script {
+                    try {
+                        // Install TruffleHog if not present
+                        sh """
+                            if ! command -v trufflehog &> /dev/null; then
+                                echo "Installing TruffleHog..."
+                                brew install trufflehog
+                            fi
+                        """
+                        
+                        // Run TruffleHog scan
+                        sh """
+                            echo "Starting security scan..."
+                            trufflehog --only-verified --format json . > trufflehog-results.json || true
+                            
+                            # Check if any secrets were found
+                            if [ -s trufflehog-results.json ]; then
+                                echo "WARNING: Potential secrets found in the codebase!"
+                                cat trufflehog-results.json
+                                currentBuild.result = 'UNSTABLE'
+                            else
+                                echo "No secrets found in the codebase."
+                            fi
+                        """
+                    } catch (Exception e) {
+                        echo "Security scan failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
         stage('Build') {
             steps {
                 sh 'go build -o main'
@@ -67,6 +101,8 @@ pipeline {
     
     post {
         always {
+            // Archive the security scan results
+            archiveArtifacts artifacts: 'trufflehog-results.json', allowEmptyArchive: true
             cleanWs()
         }
         success {
@@ -74,6 +110,9 @@ pipeline {
         }
         failure {
             echo 'Pipeline failed!'
+        }
+        unstable {
+            echo 'Pipeline completed with warnings (potential secrets found)!'
         }
     }
 } 
