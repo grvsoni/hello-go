@@ -16,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.21.3
 
 WORKDIR /app
 
@@ -24,8 +24,16 @@ WORKDIR /app
 COPY --from=builder /app/main .
 COPY --from=builder /app/templates ./templates
 
-# Expose port 6001
-EXPOSE 6001
+# Create a non-root user
+RUN adduser -D -g '' appuser
+USER appuser
+
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+
+# Expose port 8080
+EXPOSE 8080
 
 # Run the application
 CMD ["./main"] 
