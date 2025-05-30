@@ -97,12 +97,60 @@ pipeline {
                 }
             }
         }
+        
+        stage('Container Security Scan') {
+            steps {
+                script {
+                    try {
+                        // Install Trivy if not present
+                        sh """
+                            if ! command -v trivy &> /dev/null; then
+                                echo "Installing Trivy..."
+                                brew install trivy
+                            fi
+                        """
+                        
+                        // Run Trivy scan on the image
+                        sh """
+                            echo "Starting container security scan..."
+                            
+                            # Scan for vulnerabilities
+                            trivy image --format json --output trivy-vuln.json ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            
+                            # Scan for misconfigurations
+                            trivy config --format json --output trivy-config.json .
+                            
+                            # Check if any critical or high vulnerabilities were found
+                            if grep -q '"Severity":"CRITICAL"\\|"Severity":"HIGH"' trivy-vuln.json; then
+                                echo "WARNING: Critical or High vulnerabilities found in the container image!"
+                                cat trivy-vuln.json
+                                currentBuild.result = 'UNSTABLE'
+                            else
+                                echo "No critical or high vulnerabilities found in the container image."
+                            fi
+                            
+                            # Check for misconfigurations
+                            if [ -s trivy-config.json ]; then
+                                echo "WARNING: Misconfigurations found in the container!"
+                                cat trivy-config.json
+                                currentBuild.result = 'UNSTABLE'
+                            else
+                                echo "No misconfigurations found in the container."
+                            fi
+                        """
+                    } catch (Exception e) {
+                        echo "Container security scan failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
     }
     
     post {
         always {
             // Archive the security scan results
-            archiveArtifacts artifacts: 'trufflehog-results.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'trufflehog-results.json,trivy-vuln.json,trivy-config.json', allowEmptyArchive: true
             cleanWs()
         }
         success {
@@ -112,7 +160,7 @@ pipeline {
             echo 'Pipeline failed!'
         }
         unstable {
-            echo 'Pipeline completed with warnings (potential secrets found)!'
+            echo 'Pipeline completed with warnings (security issues found)!'
         }
     }
 } 
