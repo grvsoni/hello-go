@@ -3,7 +3,6 @@ pipeline {
     
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
-        DOCKER_TAG = "${BUILD_NUMBER}"
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         PATH = "/opt/homebrew/bin:/Users/gaurav/.rd/bin:${env.PATH}"
     }
@@ -65,8 +64,8 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Build the image with multiple tags
-                        sh "/Users/gaurav/.rd/bin/docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
+                        // Build the image with meaningful tags
+                        sh "/Users/gaurav/.rd/bin/docker build -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
                         
                         // Login to DockerHub
                         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
@@ -76,7 +75,6 @@ pipeline {
                         }
                         
                         // Push all tags
-                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
                         sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
                         sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:latest"
                         
@@ -86,7 +84,6 @@ pipeline {
                         // Print version information
                         echo """
                         Image versions pushed to DockerHub:
-                        - ${DOCKER_IMAGE}:${DOCKER_TAG} (Build number)
                         - ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} (Git commit)
                         - ${DOCKER_IMAGE}:latest (Latest version)
                         """
@@ -115,7 +112,7 @@ pipeline {
                             echo "Starting container security scan..."
                             
                             # Scan for vulnerabilities
-                            trivy image --format json --output trivy-vuln.json ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            trivy image --format json --output trivy-vuln.json ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}
                             
                             # Scan for misconfigurations
                             trivy config --format json --output trivy-config.json .
