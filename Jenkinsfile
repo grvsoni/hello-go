@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         DOCKER_TAG = "${BUILD_NUMBER}"
-        PATH = "/opt/homebrew/bin:${env.PATH}"
+        PATH = "/opt/homebrew/bin:/Users/gaurav/.rd/bin:${env.PATH}"
     }
     
     stages {
@@ -31,22 +31,22 @@ pipeline {
                 script {
                     try {
                         // Build the image
-                        sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-                        sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+                        sh "/Users/gaurav/.rd/bin/docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                        sh "/Users/gaurav/.rd/bin/docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
                         
                         // Login to DockerHub
                         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
                                                        usernameVariable: 'DOCKER_USER', 
                                                        passwordVariable: 'DOCKER_PASS')]) {
-                            sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                            sh "echo ${DOCKER_PASS} | /Users/gaurav/.rd/bin/docker login -u ${DOCKER_USER} --password-stdin"
                         }
                         
                         // Push the images
-                        sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                        sh "docker push ${DOCKER_IMAGE}:latest"
+                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:latest"
                         
                         // Logout from DockerHub
-                        sh "docker logout"
+                        sh "/Users/gaurav/.rd/bin/docker logout"
                     } catch (Exception e) {
                         echo "Failed to build or push Docker image: ${e.message}"
                         throw e
