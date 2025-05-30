@@ -29,12 +29,12 @@ pipeline {
                         // Run TruffleHog scan
                         sh """
                             echo "Starting security scan..."
-                            trufflehog --only-verified --format json . > trufflehog-results.json || true
+                            trufflehog --only-verified . > trufflehog-results.txt || true
                             
                             # Check if any secrets were found
-                            if [ -s trufflehog-results.json ]; then
+                            if [ -s trufflehog-results.txt ]; then
                                 echo "WARNING: Potential secrets found in the codebase!"
-                                cat trufflehog-results.json
+                                cat trufflehog-results.txt
                                 currentBuild.result = 'UNSTABLE'
                             else
                                 echo "No secrets found in the codebase."
@@ -126,8 +126,8 @@ pipeline {
                                 echo "No critical or high vulnerabilities found in the container image."
                             fi
                             
-                            # Check for misconfigurations
-                            if [ -s trivy-config.json ]; then
+                            # Check for misconfigurations with failures
+                            if grep -q '"Status":"FAIL"' trivy-config.json; then
                                 echo "WARNING: Misconfigurations found in the container!"
                                 cat trivy-config.json
                                 currentBuild.result = 'UNSTABLE'
@@ -147,7 +147,7 @@ pipeline {
     post {
         always {
             // Archive the security scan results
-            archiveArtifacts artifacts: 'trufflehog-results.json,trivy-vuln.json,trivy-config.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'trufflehog-results.txt,trivy-vuln.json,trivy-config.json', allowEmptyArchive: true
             cleanWs()
         }
         success {
