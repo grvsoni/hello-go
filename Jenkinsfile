@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         DOCKER_TAG = "${BUILD_NUMBER}"
+        PATH = "/opt/homebrew/bin:${env.PATH}"
     }
     
     stages {
