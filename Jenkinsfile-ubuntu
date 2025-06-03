@@ -7,6 +7,47 @@ pipeline {
     }
     
     stages {
+        stage('Setup Environment') {
+            steps {
+                script {
+                    // Install Go
+                    sh '''
+                        if ! command -v go &> /dev/null; then
+                            echo "Installing Go..."
+                            wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
+                            sudo rm -rf /usr/local/go
+                            sudo tar -C /usr/local -xzf go1.21.6.linux-amd64.tar.gz
+                            echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+                            source ~/.bashrc
+                        fi
+                    '''
+                    
+                    // Install TruffleHog
+                    sh '''
+                        if ! command -v trufflehog &> /dev/null; then
+                            echo "Installing TruffleHog..."
+                            sudo apt-get update
+                            sudo apt-get install -y python3-pip
+                            sudo pip3 install trufflehog
+                        fi
+                    '''
+                    
+                    // Install Trivy
+                    sh '''
+                        if ! command -v trivy &> /dev/null; then
+                            echo "Installing Trivy..."
+                            sudo apt-get update
+                            sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+                            sudo apt-get update
+                            sudo apt-get install -y trivy
+                        fi
+                    '''
+                }
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 checkout scm
@@ -17,16 +58,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install TruffleHog if not present
-                        sh '''
-                            if ! command -v trufflehog &> /dev/null; then
-                                echo "Installing TruffleHog..."
-                                sudo apt-get update
-                                sudo apt-get install -y python3-pip
-                                sudo pip3 install trufflehog
-                            fi
-                        '''
-                        
                         // Run TruffleHog scan
                         sh '''
                             echo "Starting security scan..."
@@ -51,13 +82,19 @@ pipeline {
         
         stage('Build') {
             steps {
-                sh 'go build -o main'
+                sh '''
+                    export PATH=$PATH:/usr/local/go/bin
+                    go build -o main
+                '''
             }
         }
         
         stage('Test') {
             steps {
-                sh 'go test ./...'
+                sh '''
+                    export PATH=$PATH:/usr/local/go/bin
+                    go test ./...
+                '''
             }
         }
         
@@ -100,19 +137,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install Trivy if not present
-                        sh '''
-                            if ! command -v trivy &> /dev/null; then
-                                echo "Installing Trivy..."
-                                sudo apt-get update
-                                sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-                                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                                echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
-                                sudo apt-get update
-                                sudo apt-get install -y trivy
-                            fi
-                        '''
-                        
                         // Run Trivy scan on the image
                         sh '''
                             echo "Starting container security scan..."
