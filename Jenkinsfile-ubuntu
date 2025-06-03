@@ -18,17 +18,17 @@ pipeline {
                 script {
                     try {
                         // Install TruffleHog if not present
-                        sh """
+                        sh '''
                             if ! command -v trufflehog &> /dev/null; then
                                 echo "Installing TruffleHog..."
                                 sudo apt-get update
                                 sudo apt-get install -y python3-pip
                                 sudo pip3 install trufflehog
                             fi
-                        """
+                        '''
                         
                         // Run TruffleHog scan
-                        sh """
+                        sh '''
                             echo "Starting security scan..."
                             trufflehog --only-verified . > trufflehog-results.txt || true
                             
@@ -40,7 +40,7 @@ pipeline {
                             else
                                 echo "No secrets found in the codebase."
                             fi
-                        """
+                        '''
                     } catch (Exception e) {
                         echo "Security scan failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
@@ -101,7 +101,7 @@ pipeline {
                 script {
                     try {
                         // Install Trivy if not present
-                        sh """
+                        sh '''
                             if ! command -v trivy &> /dev/null; then
                                 echo "Installing Trivy..."
                                 sudo apt-get update
@@ -111,20 +111,20 @@ pipeline {
                                 sudo apt-get update
                                 sudo apt-get install -y trivy
                             fi
-                        """
+                        '''
                         
                         // Run Trivy scan on the image
-                        sh """
+                        sh '''
                             echo "Starting container security scan..."
                             
                             # Scan for vulnerabilities
-                            trivy image --format json --output trivy-vuln.json ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}
+                            trivy image --format json --output trivy-vuln.json ''' + "${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}" + '''
                             
                             # Scan for misconfigurations
                             trivy config --format json --output trivy-config.json .
                             
                             # Check if any critical or high vulnerabilities were found
-                            if grep -q '\\"Severity\\":\\"CRITICAL\\"\\|\\"Severity\\":\\"HIGH\\"' trivy-vuln.json; then
+                            if grep -q '"Severity":"CRITICAL"\\|"Severity":"HIGH"' trivy-vuln.json; then
                                 echo "WARNING: Critical or High vulnerabilities found in the container image!"
                                 cat trivy-vuln.json
                                 currentBuild.result = 'UNSTABLE'
@@ -133,14 +133,14 @@ pipeline {
                             fi
                             
                             # Check for misconfigurations with failures
-                            if grep -q '\\"Status\\":\\"FAIL\\"' trivy-config.json; then
+                            if grep -q '"Status":"FAIL"' trivy-config.json; then
                                 echo "WARNING: Misconfigurations found in the container!"
                                 cat trivy-config.json
                                 currentBuild.result = 'UNSTABLE'
                             else
                                 echo "No misconfigurations found in the container."
                             fi
-                        """
+                        '''
                     } catch (Exception e) {
                         echo "Container security scan failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
