@@ -124,7 +124,7 @@ pipeline {
                             trivy config --format json --output trivy-config.json .
                             
                             # Check if any critical or high vulnerabilities were found
-                            if grep -q '"Severity":"CRITICAL"\\|"Severity":"HIGH"' trivy-vuln.json; then
+                            if grep -q '\\"Severity\\":\\"CRITICAL\\"\\|\\"Severity\\":\\"HIGH\\"' trivy-vuln.json; then
                                 echo "WARNING: Critical or High vulnerabilities found in the container image!"
                                 cat trivy-vuln.json
                                 currentBuild.result = 'UNSTABLE'
@@ -133,7 +133,7 @@ pipeline {
                             fi
                             
                             # Check for misconfigurations with failures
-                            if grep -q '"Status":"FAIL"' trivy-config.json; then
+                            if grep -q '\\"Status\\":\\"FAIL\\"' trivy-config.json; then
                                 echo "WARNING: Misconfigurations found in the container!"
                                 cat trivy-config.json
                                 currentBuild.result = 'UNSTABLE'
