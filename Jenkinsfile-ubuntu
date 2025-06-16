@@ -4,10 +4,49 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        PATH = "/opt/homebrew/bin:/Users/gaurav/.rd/bin:${env.PATH}"
+        GO_INSTALL_DIR = '/opt/go'
     }
     
     stages {
+        stage('Setup Environment') {
+            steps {
+                script {
+                    // Install Go without sudo
+                    sh '''
+                        if ! command -v go &> /dev/null; then
+                            echo "Installing Go..."
+                            mkdir -p ${GO_INSTALL_DIR}
+                            wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
+                            tar -C ${GO_INSTALL_DIR} -xzf go1.21.6.linux-amd64.tar.gz
+                            echo 'export PATH=${GO_INSTALL_DIR}/go/bin:$PATH' >> ~/.bashrc
+                            source ~/.bashrc
+                        fi
+                    '''
+                    
+                    // Install TruffleHog without sudo
+                    sh '''
+                        if ! command -v trufflehog &> /dev/null; then
+                            echo "Installing TruffleHog..."
+                            pip3 install --user trufflehog
+                            echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc
+                            source ~/.bashrc
+                        fi
+                    '''
+                    
+                    // Install Trivy without sudo
+                    sh '''
+                        if ! command -v trivy &> /dev/null; then
+                            echo "Installing Trivy..."
+                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | tee /tmp/trivy.gpg > /dev/null
+                            echo "deb [signed-by=/tmp/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
+                            apt-get update
+                            apt-get install -y trivy
+                        fi
+                    '''
+                }
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 checkout scm
@@ -18,16 +57,8 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install TruffleHog if not present
-                        sh """
-                            if ! command -v trufflehog &> /dev/null; then
-                                echo "Installing TruffleHog..."
-                                brew install trufflehog
-                            fi
-                        """
-                        
                         // Run TruffleHog scan
-                        sh """
+                        sh '''
                             echo "Starting security scan..."
                             trufflehog --only-verified . > trufflehog-results.txt || true
                             
@@ -39,7 +70,7 @@ pipeline {
                             else
                                 echo "No secrets found in the codebase."
                             fi
-                        """
+                        '''
                     } catch (Exception e) {
                         echo "Security scan failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
@@ -50,13 +81,19 @@ pipeline {
         
         stage('Build') {
             steps {
-                sh 'go build -o main'
+                sh '''
+                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    go build -o main
+                '''
             }
         }
         
         stage('Test') {
             steps {
-                sh 'go test ./...'
+                sh '''
+                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    go test ./...
+                '''
             }
         }
         
@@ -65,21 +102,21 @@ pipeline {
                 script {
                     try {
                         // Build the image with meaningful tags
-                        sh "/Users/gaurav/.rd/bin/docker build -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
+                        sh "docker build -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
                         
                         // Login to DockerHub
                         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
                                                        usernameVariable: 'DOCKER_USER', 
                                                        passwordVariable: 'DOCKER_PASS')]) {
-                            sh "echo ${DOCKER_PASS} | /Users/gaurav/.rd/bin/docker login -u ${DOCKER_USER} --password-stdin"
+                            sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
                         }
                         
                         // Push all tags
-                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
-                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:latest"
+                        sh "docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                        sh "docker push ${DOCKER_IMAGE}:latest"
                         
                         // Logout from DockerHub
-                        sh "/Users/gaurav/.rd/bin/docker logout"
+                        sh "docker logout"
                         
                         // Print version information
                         echo """
@@ -99,20 +136,12 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install Trivy if not present
-                        sh """
-                            if ! command -v trivy &> /dev/null; then
-                                echo "Installing Trivy..."
-                                brew install trivy
-                            fi
-                        """
-                        
                         // Run Trivy scan on the image
-                        sh """
+                        sh '''
                             echo "Starting container security scan..."
                             
                             # Scan for vulnerabilities
-                            trivy image --format json --output trivy-vuln.json ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}
+                            trivy image --format json --output trivy-vuln.json ''' + "${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}" + '''
                             
                             # Scan for misconfigurations
                             trivy config --format json --output trivy-config.json .
@@ -134,10 +163,48 @@ pipeline {
                             else
                                 echo "No misconfigurations found in the container."
                             fi
-                        """
+                        '''
                     } catch (Exception e) {
                         echo "Container security scan failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    try {
+                        // Verify kubectl is available
+                        sh '''
+                            if ! command -v kubectl &> /dev/null; then
+                                echo "kubectl not found. Please ensure it is installed and configured."
+                                exit 1
+                            fi
+                        '''
+
+                        // Create namespace if it doesn't exist
+                        sh 'kubectl apply -f k8s/namespace.yaml'
+
+                        // Deploy the application
+                        sh '''
+                            echo "Deploying to Kubernetes..."
+                            kubectl apply -f k8s/deployment.yaml
+                            kubectl apply -f k8s/service.yaml
+                            
+                            # Wait for deployment to be ready
+                            kubectl -n hello-go-pre rollout status deployment/hello-go --timeout=300s
+                            
+                            echo "Deployment completed successfully!"
+                            
+                            # Display service information
+                            echo "Service details:"
+                            kubectl -n hello-go-pre get service hello-go
+                        '''
+                    } catch (Exception e) {
+                        echo "Kubernetes deployment failed: ${e.message}"
+                        throw e
                     }
                 }
             }
