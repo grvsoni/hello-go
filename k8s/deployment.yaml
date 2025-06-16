@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: hello-go
-        image: grvsoni/hello-go:latest
+        image: grvsoniharness/hello-go:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 6001

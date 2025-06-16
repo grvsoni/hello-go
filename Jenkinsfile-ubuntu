@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        GO_INSTALL_DIR = '${HOME}/go-install'
+        GO_INSTALL_DIR = '/opt/go'
     }
     
     stages {
@@ -15,20 +15,11 @@ pipeline {
                     sh '''
                         if ! command -v go &> /dev/null; then
                             echo "Installing Go..."
-                            GO_INSTALL_DIR="$HOME/go-install"
-                            mkdir -p "$GO_INSTALL_DIR"
-                            
-                            echo "Downloading Go..."
-                            curl -L -o go.tar.gz https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
-                            
-                            echo "Extracting Go..."
-                            tar -C "$GO_INSTALL_DIR" -xzf go.tar.gz
-                            rm go.tar.gz
-                            
-                            export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
-                            echo "Go installation completed. Version: $(go version)"
-                        else
-                            echo "Go is already installed: $(go version)"
+                            mkdir -p ${GO_INSTALL_DIR}
+                            wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
+                            tar -C ${GO_INSTALL_DIR} -xzf go1.21.6.linux-amd64.tar.gz
+                            echo 'export PATH=${GO_INSTALL_DIR}/go/bin:$PATH' >> ~/.bashrc
+                            source ~/.bashrc
                         fi
                     '''
                     
@@ -91,12 +82,7 @@ pipeline {
         stage('Build') {
             steps {
                 sh '''
-                    # Setup Go environment
-                    GO_INSTALL_DIR="$HOME/go-install"
-                    export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
-                    echo "Using Go version: $(go version)"
-                    
-                    # Build the application
+                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
                     go build -o main
                 '''
             }
@@ -105,12 +91,7 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                    # Setup Go environment
-                    GO_INSTALL_DIR="$HOME/go-install"
-                    export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
-                    echo "Using Go version: $(go version)"
-                    
-                    # Run tests
+                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
                     go test ./...
                 '''
             }
@@ -186,44 +167,6 @@ pipeline {
                     } catch (Exception e) {
                         echo "Container security scan failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    try {
-                        // Verify kubectl is available
-                        sh '''
-                            if ! command -v kubectl &> /dev/null; then
-                                echo "kubectl not found. Please ensure it is installed and configured."
-                                exit 1
-                            fi
-                        '''
-
-                        // Create namespace if it doesn't exist
-                        sh 'kubectl apply -f k8s/namespace.yaml'
-
-                        // Deploy the application
-                        sh '''
-                            echo "Deploying to Kubernetes..."
-                            kubectl apply -f k8s/deployment.yaml
-                            kubectl apply -f k8s/service.yaml
-                            
-                            # Wait for deployment to be ready
-                            kubectl -n hello-go-pre rollout status deployment/hello-go --timeout=300s
-                            
-                            echo "Deployment completed successfully!"
-                            
-                            # Display service information
-                            echo "Service details:"
-                            kubectl -n hello-go-pre get service hello-go
-                        '''
-                    } catch (Exception e) {
-                        echo "Kubernetes deployment failed: ${e.message}"
-                        throw e
                     }
                 }
             }
