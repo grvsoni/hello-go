@@ -436,20 +436,20 @@ pipeline {
                                 timeout(time: 2, unit: 'MINUTES') {
                                     def rollbackChoice = input(
                                         message: '''
-                                            ⚠️ ROLLBACK CONFIRMATION REQUIRED
+                                            ⚠️ VERSION ROLLBACK CONFIRMATION REQUIRED
                                             
                                             Production deployment was aborted/failed.
                                             
-                                            Do you want to rollback the pre-production deployment?
+                                            Do you want to rollback the pre-production deployment to the previous version?
                                             
-                                            • YES: Remove pre-production deployment (clean state)
-                                            • NO: Keep pre-production deployment for manual review
+                                            • YES: Rollback pre-production to previous image version (maintains service)
+                                            • NO: Keep current pre-production version for manual review
                                         ''',
                                         ok: 'Choose Action',
                                         parameters: [
                                             choice(
                                                 name: 'ROLLBACK_ACTION',
-                                                choices: ['YES - Rollback Pre-Production', 'NO - Keep Pre-Production'],
+                                                choices: ['YES - Rollback to Previous Version', 'NO - Keep Current Version'],
                                                 description: 'Select rollback action'
                                             )
                                         ],
@@ -459,64 +459,99 @@ pipeline {
                                     if (rollbackChoice.ROLLBACK_ACTION.startsWith('YES')) {
                                         echo "🔄 Rollback approved by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
                                         
-                                        // Perform pre-production rollback
+                                        // Perform pre-production version rollback
                                         sh """
-                                            echo "=== STARTING PRE-PRODUCTION ROLLBACK ==="
+                                            echo "=== STARTING PRE-PRODUCTION VERSION ROLLBACK ==="
                                             
                                             # Show current state before rollback
                                             echo "Current pre-production state:"
                                             kubectl get pods -n hello-go-pre -l app=hello-go || true
-                                            kubectl get svc -n hello-go-pre hello-go || true
+                                            echo "Current image version:"
+                                            kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}' || echo "N/A"
                                             
                                             echo ""
-                                            echo "Performing rollback..."
+                                            echo "Checking rollout history..."
+                                            kubectl rollout history deployment/hello-go -n hello-go-pre || true
                                             
-                                            # Delete deployment
-                                            kubectl delete deployment hello-go -n hello-go-pre --ignore-not-found=true
+                                            # Attempt to rollback to previous version
+                                            echo ""
+                                            echo "Attempting to rollback to previous version..."
                                             
-                                            # Delete service
-                                            kubectl delete service hello-go -n hello-go-pre --ignore-not-found=true
+                                            # Check if there's a previous revision to rollback to
+                                            REVISION_COUNT=\$(kubectl rollout history deployment/hello-go -n hello-go-pre --no-headers 2>/dev/null | wc -l || echo "0")
                                             
-                                            # Wait for cleanup
-                                            sleep 10
-                                            
-                                            # Verify cleanup
-                                            echo "Verifying rollback completion..."
-                                            REMAINING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --no-headers 2>/dev/null | wc -l || echo "0")
-                                            REMAINING_SERVICES=\$(kubectl get svc -n hello-go-pre hello-go --no-headers 2>/dev/null | wc -l || echo "0")
-                                            
-                                            echo "Remaining pods: \$REMAINING_PODS"
-                                            echo "Remaining services: \$REMAINING_SERVICES"
-                                            
-                                            if [ "\$REMAINING_PODS" -eq "0" ] && [ "\$REMAINING_SERVICES" -eq "0" ]; then
-                                                echo "✅ Pre-production rollback completed successfully"
+                                            if [ "\$REVISION_COUNT" -gt "1" ]; then
+                                                echo "Found \$REVISION_COUNT revisions. Rolling back to previous version..."
+                                                
+                                                # Perform the rollback
+                                                kubectl rollout undo deployment/hello-go -n hello-go-pre
+                                                
+                                                # Wait for rollback to complete
+                                                echo "Waiting for rollback to complete..."
+                                                kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
+                                                
+                                                # Verify rollback
+                                                echo "Verifying rollback completion..."
+                                                RUNNING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                                PREVIOUS_IMAGE=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}')
+                                                
+                                                echo "Running pods after rollback: \$RUNNING_PODS"
+                                                echo "Rolled back to image: \$PREVIOUS_IMAGE"
+                                                
+                                                if [ "\$RUNNING_PODS" -eq "3" ]; then
+                                                    echo "✅ Pre-production version rollback completed successfully"
+                                                    
+                                                    # Show final state
+                                                    echo ""
+                                                    echo "Final pre-production state:"
+                                                    kubectl get pods -n hello-go-pre -l app=hello-go
+                                                    
+                                                else
+                                                    echo "⚠️ Rollback completed but not all pods are running"
+                                                    kubectl get pods -n hello-go-pre -l app=hello-go
+                                                fi
+                                                
                                             else
-                                                echo "⚠️ Some resources may still be terminating"
-                                                kubectl get all -n hello-go-pre -l app=hello-go || true
+                                                echo "⚠️ No previous revision found for rollback. This might be the first deployment."
+                                                echo "Falling back to using 'latest' tag as previous version..."
+                                                
+                                                # Update deployment to use latest tag as fallback
+                                                kubectl patch deployment hello-go -n hello-go-pre -p '{"spec":{"template":{"spec":{"containers":[{"name":"hello-go","image":"${DOCKER_IMAGE}:latest"}]}}}}'
+                                                
+                                                # Wait for update to complete
+                                                kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
+                                                
+                                                echo "✅ Fallback to latest tag completed"
+                                                kubectl get pods -n hello-go-pre -l app=hello-go
                                             fi
                                             
                                             echo ""
                                             echo "=== ROLLBACK SUMMARY ==="
-                                            echo "🔄 Action: Pre-production deployment rolled back"
-                                            echo "📦 Image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                                            echo "🔄 Action: Pre-production version rollback"
+                                            echo "📦 Previous Image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                                            echo "📦 Rolled back to: \$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}' || echo 'Unknown')"
                                             echo "👤 Rollback approved by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
                                             echo "⏰ Rollback completed at: \$(date)"
-                                            echo "🧹 Environment: Clean state restored"
+                                            echo "🔄 Environment: Restored to previous version"
                                         """
                                         
-                                        echo "🎯 Pre-production rollback completed successfully!"
+                                        echo "🎯 Pre-production version rollback completed successfully!"
                                         
                                     } else {
-                                        echo "📋 Rollback declined by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
-                                        echo "⚠️ Pre-production deployment will remain active for manual review"
+                                        echo "📋 Version rollback declined by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
+                                        echo "⚠️ Pre-production deployment will remain at current version for manual review"
                                         
                                         sh """
-                                            echo "=== PRE-PRODUCTION DEPLOYMENT PRESERVED ==="
+                                            echo "=== PRE-PRODUCTION VERSION PRESERVED ==="
                                             echo "The following resources remain active in hello-go-pre namespace:"
                                             kubectl get pods -n hello-go-pre -l app=hello-go || true
+                                            echo "Current image version:"
+                                            kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}' || echo "N/A"
                                             kubectl get svc -n hello-go-pre hello-go || true
                                             echo ""
-                                            echo "Manual cleanup can be performed later if needed:"
+                                            echo "Manual version rollback can be performed later if needed:"
+                                            echo "  kubectl rollout undo deployment/hello-go -n hello-go-pre"
+                                            echo "Or manual cleanup:"
                                             echo "  kubectl delete deployment hello-go -n hello-go-pre"
                                             echo "  kubectl delete service hello-go -n hello-go-pre"
                                         """
