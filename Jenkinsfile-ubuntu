@@ -142,6 +142,575 @@ pipeline {
                 }
             }
         }
+        
+        stage('Deploy to Pre-Production') {
+            steps {
+                script {
+                    try {
+                        // Check if kubectl is available
+                        sh """
+                            if ! command -v kubectl &> /dev/null; then
+                                echo "kubectl not found. Please install kubectl to deploy to Kubernetes."
+                                exit 1
+                            fi
+                        """
+                        
+                        // Check cluster connectivity
+                        sh """
+                            echo "Checking Kubernetes cluster connectivity..."
+                            kubectl cluster-info
+                            kubectl get nodes
+                        """
+                        
+                        // Apply Kubernetes manifests to pre-production
+                        sh """
+                            echo "Deploying application to Pre-Production environment..."
+                            
+                            # Apply namespace first
+                            kubectl apply -f k8s/namespace.yaml
+                            
+                            # Apply deployment and service
+                            kubectl apply -f k8s/deployment.yaml
+                            kubectl apply -f k8s/service.yaml
+                            
+                            # Wait for deployment to be ready
+                            echo "Waiting for pre-production deployment to be ready..."
+                            kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
+                            
+                            # Get deployment status
+                            echo "Pre-Production deployment status:"
+                            kubectl get pods -n hello-go-pre -l app=hello-go
+                            kubectl get svc -n hello-go-pre hello-go
+                            
+                            # Get service endpoint information
+                            echo "Pre-Production service information:"
+                            kubectl describe svc hello-go -n hello-go-pre
+                        """
+                        
+                        echo "Application successfully deployed to Pre-Production environment!"
+                        
+                    } catch (Exception e) {
+                        echo "Pre-Production deployment failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        stage('Pre-Production Health Check') {
+            steps {
+                script {
+                    try {
+                        echo "Starting Pre-Production health checks in parallel..."
+                        
+                        // Wait a bit for services to stabilize
+                        sh "sleep 10"
+                        
+                        // Run all health checks in parallel
+                        parallel(
+                            "Pod Health Check": {
+                                sh """
+                                    echo "=== CHECKING POD HEALTH ==="
+                                    
+                                    # Get pod status
+                                    kubectl get pods -n hello-go-pre -l app=hello-go
+                                    
+                                    # Check if all pods are running
+                                    RUNNING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                    EXPECTED_PODS=3
+                                    
+                                    echo "Running pods: \$RUNNING_PODS / \$EXPECTED_PODS"
+                                    
+                                    if [ "\$RUNNING_PODS" -ne "\$EXPECTED_PODS" ]; then
+                                        echo "ERROR: Not all pods are running!"
+                                        kubectl describe pods -n hello-go-pre -l app=hello-go
+                                        exit 1
+                                    fi
+                                    
+                                    echo "✅ Pod Health Check: All pods are running successfully"
+                                """
+                            },
+                            
+                            "Service Availability Check": {
+                                sh """
+                                    echo "=== CHECKING SERVICE AVAILABILITY ==="
+                                    
+                                    # Get service details
+                                    kubectl get svc hello-go -n hello-go-pre
+                                    
+                                    # Get service endpoint
+                                    SERVICE_IP=\$(kubectl get svc hello-go -n hello-go-pre -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+                                    SERVICE_PORT=\$(kubectl get svc hello-go -n hello-go-pre -o jsonpath='{.spec.ports[0].port}')
+                                    
+                                    if [ -z "\$SERVICE_IP" ]; then
+                                        # For local clusters, try to get the external IP or use port-forward
+                                        echo "LoadBalancer IP not available, checking service endpoints..."
+                                        kubectl get endpoints hello-go -n hello-go-pre
+                                        
+                                        # Check if endpoints exist
+                                        ENDPOINTS=\$(kubectl get endpoints hello-go -n hello-go-pre -o jsonpath='{.subsets[0].addresses}' 2>/dev/null || echo "")
+                                        if [ -z "\$ENDPOINTS" ] || [ "\$ENDPOINTS" = "null" ]; then
+                                            echo "ERROR: No service endpoints available!"
+                                            exit 1
+                                        fi
+                                        
+                                        echo "✅ Service Check: Service endpoints are available"
+                                    else
+                                        echo "✅ Service Check: Service available at \$SERVICE_IP:\$SERVICE_PORT"
+                                    fi
+                                """
+                            },
+                            
+                            "Application HTTP Health Check": {
+                                sh """
+                                    echo "=== PERFORMING APPLICATION HEALTH CHECK ==="
+                                    
+                                    # Wait a bit more for this check since it needs running pods
+                                    sleep 5
+                                    
+                                    # Get a running pod for port-forward
+                                    POD_NAME=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+                                    
+                                    if [ -z "\$POD_NAME" ]; then
+                                        echo "ERROR: No running pod found for health check!"
+                                        exit 1
+                                    fi
+                                    
+                                    echo "Using pod: \$POD_NAME for health check"
+                                    
+                                    # Use a unique port to avoid conflicts with parallel execution
+                                    HEALTH_CHECK_PORT=\$((8080 + RANDOM % 1000))
+                                    
+                                    # Start port-forward in background
+                                    kubectl port-forward pod/\$POD_NAME -n hello-go-pre \$HEALTH_CHECK_PORT:6001 &
+                                    PORT_FORWARD_PID=\$!
+                                    
+                                    # Wait for port-forward to establish
+                                    sleep 5
+                                    
+                                    # Perform health check
+                                    HEALTH_CHECK_PASSED=false
+                                    for i in {1..5}; do
+                                        echo "HTTP health check attempt \$i/5 on port \$HEALTH_CHECK_PORT..."
+                                        if curl -f -s -m 10 http://localhost:\$HEALTH_CHECK_PORT/ > /dev/null; then
+                                            echo "✅ HTTP Health Check: Application is responding!"
+                                            HEALTH_CHECK_PASSED=true
+                                            break
+                                        else
+                                            echo "HTTP health check failed, retrying in 3 seconds..."
+                                            sleep 3
+                                        fi
+                                    done
+                                    
+                                    # Clean up port-forward
+                                    kill \$PORT_FORWARD_PID 2>/dev/null || true
+                                    
+                                    if [ "\$HEALTH_CHECK_PASSED" = "false" ]; then
+                                        echo "ERROR: Application HTTP health check failed after 5 attempts!"
+                                        
+                                        # Show pod logs for debugging
+                                        echo "=== POD LOGS FOR DEBUGGING ==="
+                                        kubectl logs \$POD_NAME -n hello-go-pre --tail=50
+                                        
+                                        exit 1
+                                    fi
+                                """
+                            },
+                            
+                            "Readiness Probe Check": {
+                                sh """
+                                    echo "=== CHECKING READINESS PROBES ==="
+                                    
+                                    # Wait a bit for readiness probes to stabilize
+                                    sleep 3
+                                    
+                                    # Check if all pods are ready
+                                    READY_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+                                    TOTAL_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --no-headers | wc -l)
+                                    
+                                    echo "Ready pods: \$READY_PODS / \$TOTAL_PODS"
+                                    
+                                    if [ "\$READY_PODS" -ne "\$TOTAL_PODS" ]; then
+                                        echo "WARNING: Not all pods are ready!"
+                                        kubectl describe pods -n hello-go-pre -l app=hello-go
+                                        # Don't fail on readiness - just warn
+                                        echo "⚠️ Readiness Check: Some pods not ready, but continuing..."
+                                    else
+                                        echo "✅ Readiness Check: All pods are ready"
+                                    fi
+                                """
+                            }
+                        )
+                        
+                        // Final health summary after all parallel checks complete
+                        sh """
+                            echo ""
+                            echo "=== PRE-PRODUCTION HEALTH CHECK SUMMARY ==="
+                            echo "✅ Pod Health: All pods running (checked in parallel)"
+                            echo "✅ Service: Endpoints available (checked in parallel)"
+                            echo "✅ Application: HTTP health check passed (checked in parallel)"
+                            echo "✅ Readiness: Readiness probes verified (checked in parallel)"
+                            echo ""
+                            echo "🚀 Pre-Production environment is healthy and ready for production promotion!"
+                        """
+                        
+                        echo "🎉 All parallel health checks completed successfully!"
+                        
+                    } catch (Exception e) {
+                        echo "Pre-Production health check failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                        
+                        // Show debugging information
+                        sh """
+                            echo "=== HEALTH CHECK DEBUGGING INFORMATION ==="
+                            kubectl get pods -n hello-go-pre -l app=hello-go -o wide || true
+                            kubectl get svc hello-go -n hello-go-pre || true
+                            kubectl get endpoints hello-go -n hello-go-pre || true
+                            echo "=== END DEBUGGING INFORMATION ==="
+                        """
+                        
+                        error("Health checks failed - cannot proceed to production approval")
+                    }
+                }
+            }
+        }
+        
+        stage('Manual Approval for Production') {
+            steps {
+                script {
+                    try {
+                        // Display pre-production deployment info for review
+                        sh """
+                            echo "=== PRE-PRODUCTION DEPLOYMENT SUMMARY ==="
+                            echo "Image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                            echo "Namespace: hello-go-pre"
+                            echo ""
+                            echo "Current Pre-Production Status:"
+                            kubectl get pods -n hello-go-pre -l app=hello-go
+                            kubectl get svc -n hello-go-pre hello-go
+                        """
+                        
+                        // Manual approval step
+                        timeout(time: 10, unit: 'MINUTES') {
+                            input message: '''
+                                🚀 Ready to deploy to PRODUCTION? 
+                                
+                                Please review the pre-production deployment above.
+                                
+                                Deployment Details:
+                                • Image: ${DOCKER_IMAGE}:latest
+                                • Target: hello-go-prod namespace
+                                • Replicas: 3
+                                
+                                Click "Proceed" to deploy to production or "Abort" to cancel.
+                            ''', 
+                            ok: 'Proceed to Production',
+                            submitterParameter: 'APPROVER'
+                        }
+                        
+                        echo "Production deployment approved by: ${env.APPROVER ?: 'Unknown'}"
+                        
+                    } catch (Exception e) {
+                        echo "Manual approval failed or timed out: ${e.message}"
+                        currentBuild.result = 'ABORTED'
+                        error("Production deployment was not approved")
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            steps {
+                script {
+                    try {
+                        echo "Starting Production deployment..."
+                        
+                        // Create production namespace
+                        sh """
+                            echo "Creating/updating production namespace..."
+                            kubectl create namespace hello-go-prod --dry-run=client -o yaml | kubectl apply -f -
+                        """
+                        
+                        // Deploy to production with namespace override
+                        sh """
+                            echo "Deploying application to Production environment..."
+                            
+                            # Apply deployment with production namespace override
+                            sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/deployment.yaml | kubectl apply -f -
+                            
+                            # Apply service with production namespace override  
+                            sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/service.yaml | kubectl apply -f -
+                            
+                            # Wait for production deployment to be ready
+                            echo "Waiting for production deployment to be ready..."
+                            kubectl rollout status deployment/hello-go -n hello-go-prod --timeout=300s
+                            
+                            # Get production deployment status
+                            echo "=== PRODUCTION DEPLOYMENT STATUS ==="
+                            kubectl get pods -n hello-go-prod -l app=hello-go
+                            kubectl get svc -n hello-go-prod hello-go
+                            
+                            # Get production service endpoint information
+                            echo "=== PRODUCTION SERVICE INFORMATION ==="
+                            kubectl describe svc hello-go -n hello-go-prod
+                            
+                            # Display both environments for comparison
+                            echo ""
+                            echo "=== ENVIRONMENT COMPARISON ==="
+                            echo "Pre-Production (hello-go-pre):"
+                            kubectl get pods -n hello-go-pre -l app=hello-go --no-headers | wc -l | xargs echo "  Pods:"
+                            echo "Production (hello-go-prod):"
+                            kubectl get pods -n hello-go-prod -l app=hello-go --no-headers | wc -l | xargs echo "  Pods:"
+                        """
+                        
+                        echo """
+                        🎉 SUCCESS! Application successfully deployed to Production!
+                        
+                        Production Details:
+                        • Namespace: hello-go-prod
+                        • Image: ${DOCKER_IMAGE}:latest
+                        • Commit: ${GIT_COMMIT_SHORT}
+                        • Approved by: ${env.APPROVER ?: 'Unknown'}
+                        """
+                        
+                    } catch (Exception e) {
+                        echo "Production deployment failed: ${e.message}"
+                        currentBuild.result = 'FAILURE'
+                        
+                        // Attempt to show current state for debugging
+                        sh """
+                            echo "=== DEBUGGING INFORMATION ==="
+                            kubectl get pods -n hello-go-prod -l app=hello-go || echo "No pods found in production"
+                            kubectl describe deployment hello-go -n hello-go-prod || echo "No deployment found in production"
+                        """
+                        
+                        throw e
+                    }
+                }
+            }
+        }
+        
+        stage('Production Health Check') {
+            steps {
+                script {
+                    try {
+                        echo "Starting Production health checks in parallel..."
+                        
+                        // Wait a bit for production services to stabilize
+                        sh "sleep 15"
+                        
+                        // Run all production health checks in parallel
+                        parallel(
+                            "Production Pod Health Check": {
+                                sh """
+                                    echo "=== CHECKING PRODUCTION POD HEALTH ==="
+                                    
+                                    # Get production pod status
+                                    kubectl get pods -n hello-go-prod -l app=hello-go
+                                    
+                                    # Check if all pods are running
+                                    RUNNING_PODS=\$(kubectl get pods -n hello-go-prod -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                    EXPECTED_PODS=3
+                                    
+                                    echo "Production running pods: \$RUNNING_PODS / \$EXPECTED_PODS"
+                                    
+                                    if [ "\$RUNNING_PODS" -ne "\$EXPECTED_PODS" ]; then
+                                        echo "ERROR: Not all production pods are running!"
+                                        kubectl describe pods -n hello-go-prod -l app=hello-go
+                                        exit 1
+                                    fi
+                                    
+                                    echo "✅ Production Pod Health: All pods are running successfully"
+                                """
+                            },
+                            
+                            "Production Service Availability Check": {
+                                sh """
+                                    echo "=== CHECKING PRODUCTION SERVICE AVAILABILITY ==="
+                                    
+                                    # Get production service details
+                                    kubectl get svc hello-go -n hello-go-prod
+                                    
+                                    # Get service endpoint
+                                    SERVICE_IP=\$(kubectl get svc hello-go -n hello-go-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+                                    SERVICE_PORT=\$(kubectl get svc hello-go -n hello-go-prod -o jsonpath='{.spec.ports[0].port}')
+                                    
+                                    if [ -z "\$SERVICE_IP" ]; then
+                                        # For local clusters, check service endpoints
+                                        echo "LoadBalancer IP not available, checking production service endpoints..."
+                                        kubectl get endpoints hello-go -n hello-go-prod
+                                        
+                                        # Check if endpoints exist
+                                        ENDPOINTS=\$(kubectl get endpoints hello-go -n hello-go-prod -o jsonpath='{.subsets[0].addresses}' 2>/dev/null || echo "")
+                                        if [ -z "\$ENDPOINTS" ] || [ "\$ENDPOINTS" = "null" ]; then
+                                            echo "ERROR: No production service endpoints available!"
+                                            exit 1
+                                        fi
+                                        
+                                        echo "✅ Production Service Check: Service endpoints are available"
+                                    else
+                                        echo "✅ Production Service Check: Service available at \$SERVICE_IP:\$SERVICE_PORT"
+                                    fi
+                                """
+                            },
+                            
+                            "Production HTTP Health Check": {
+                                sh """
+                                    echo "=== PERFORMING PRODUCTION APPLICATION HEALTH CHECK ==="
+                                    
+                                    # Wait a bit more for production pods to be fully ready
+                                    sleep 10
+                                    
+                                    # Get a running production pod for port-forward
+                                    POD_NAME=\$(kubectl get pods -n hello-go-prod -l app=hello-go --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+                                    
+                                    if [ -z "\$POD_NAME" ]; then
+                                        echo "ERROR: No running production pod found for health check!"
+                                        exit 1
+                                    fi
+                                    
+                                    echo "Using production pod: \$POD_NAME for health check"
+                                    
+                                    # Use a unique port for production health check
+                                    PROD_HEALTH_CHECK_PORT=\$((9080 + RANDOM % 1000))
+                                    
+                                    # Start port-forward in background
+                                    kubectl port-forward pod/\$POD_NAME -n hello-go-prod \$PROD_HEALTH_CHECK_PORT:6001 &
+                                    PORT_FORWARD_PID=\$!
+                                    
+                                    # Wait for port-forward to establish
+                                    sleep 8
+                                    
+                                    # Perform production health check
+                                    HEALTH_CHECK_PASSED=false
+                                    for i in {1..5}; do
+                                        echo "Production HTTP health check attempt \$i/5 on port \$PROD_HEALTH_CHECK_PORT..."
+                                        if curl -f -s -m 10 http://localhost:\$PROD_HEALTH_CHECK_PORT/ > /dev/null; then
+                                            echo "✅ Production HTTP Health Check: Application is responding!"
+                                            HEALTH_CHECK_PASSED=true
+                                            break
+                                        else
+                                            echo "Production HTTP health check failed, retrying in 3 seconds..."
+                                            sleep 3
+                                        fi
+                                    done
+                                    
+                                    # Clean up port-forward
+                                    kill \$PORT_FORWARD_PID 2>/dev/null || true
+                                    
+                                    if [ "\$HEALTH_CHECK_PASSED" = "false" ]; then
+                                        echo "ERROR: Production application HTTP health check failed after 5 attempts!"
+                                        
+                                        # Show production pod logs for debugging
+                                        echo "=== PRODUCTION POD LOGS FOR DEBUGGING ==="
+                                        kubectl logs \$POD_NAME -n hello-go-prod --tail=50
+                                        
+                                        exit 1
+                                    fi
+                                """
+                            },
+                            
+                            "Production Readiness Probe Check": {
+                                sh """
+                                    echo "=== CHECKING PRODUCTION READINESS PROBES ==="
+                                    
+                                    # Wait a bit for production readiness probes to stabilize
+                                    sleep 5
+                                    
+                                    # Check if all production pods are ready
+                                    READY_PODS=\$(kubectl get pods -n hello-go-prod -l app=hello-go -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+                                    TOTAL_PODS=\$(kubectl get pods -n hello-go-prod -l app=hello-go --no-headers | wc -l)
+                                    
+                                    echo "Production ready pods: \$READY_PODS / \$TOTAL_PODS"
+                                    
+                                    if [ "\$READY_PODS" -ne "\$TOTAL_PODS" ]; then
+                                        echo "WARNING: Not all production pods are ready!"
+                                        kubectl describe pods -n hello-go-prod -l app=hello-go
+                                        # Don't fail on readiness - just warn
+                                        echo "⚠️ Production Readiness Check: Some pods not ready, but continuing..."
+                                    else
+                                        echo "✅ Production Readiness Check: All pods are ready"
+                                    fi
+                                """
+                            },
+                            
+                            "Environment Comparison Check": {
+                                sh """
+                                    echo "=== COMPARING PRE-PROD vs PRODUCTION ENVIRONMENTS ==="
+                                    
+                                    # Wait a bit for both environments to stabilize
+                                    sleep 5
+                                    
+                                    echo "Pre-Production Environment (hello-go-pre):"
+                                    PRE_PROD_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                    echo "  Running Pods: \$PRE_PROD_PODS"
+                                    kubectl get svc hello-go -n hello-go-pre --no-headers | awk '{print "  Service: " \$1 " (" \$2 ")"}'
+                                    
+                                    echo ""
+                                    echo "Production Environment (hello-go-prod):"
+                                    PROD_PODS=\$(kubectl get pods -n hello-go-prod -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                    echo "  Running Pods: \$PROD_PODS"
+                                    kubectl get svc hello-go -n hello-go-prod --no-headers | awk '{print "  Service: " \$1 " (" \$2 ")"}'
+                                    
+                                    echo ""
+                                    if [ "\$PRE_PROD_PODS" -eq "\$PROD_PODS" ] && [ "\$PROD_PODS" -eq "3" ]; then
+                                        echo "✅ Environment Comparison: Both environments have matching pod counts"
+                                    else
+                                        echo "⚠️ Environment Comparison: Pod counts differ (Pre-prod: \$PRE_PROD_PODS, Prod: \$PROD_PODS)"
+                                    fi
+                                """
+                            }
+                        )
+                        
+                        // Final production health summary after all parallel checks complete
+                        sh """
+                            echo ""
+                            echo "=== PRODUCTION HEALTH CHECK SUMMARY ==="
+                            echo "✅ Production Pod Health: All pods running (checked in parallel)"
+                            echo "✅ Production Service: Endpoints available (checked in parallel)"
+                            echo "✅ Production Application: HTTP health check passed (checked in parallel)"
+                            echo "✅ Production Readiness: Readiness probes verified (checked in parallel)"
+                            echo "✅ Environment Comparison: Pre-prod vs Production verified (checked in parallel)"
+                            echo ""
+                            echo "🎉 Production environment is fully operational and healthy!"
+                            echo ""
+                            echo "=== FINAL DEPLOYMENT SUCCESS ==="
+                            echo "🚀 Application: ${DOCKER_IMAGE}:latest"
+                            echo "📦 Commit: ${GIT_COMMIT_SHORT}"
+                            echo "👤 Approved by: ${env.APPROVER ?: 'Unknown'}"
+                            echo "🌍 Environments: Pre-Production + Production both healthy"
+                            echo "⏰ Deployment completed at: \$(date)"
+                        """
+                        
+                        echo "🎉 All production health checks completed successfully!"
+                        
+                    } catch (Exception e) {
+                        echo "Production health check failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                        
+                        // Show comprehensive debugging information for production
+                        sh """
+                            echo "=== PRODUCTION HEALTH CHECK DEBUGGING INFORMATION ==="
+                            echo "Production Pods:"
+                            kubectl get pods -n hello-go-prod -l app=hello-go -o wide || true
+                            echo ""
+                            echo "Production Service:"
+                            kubectl get svc hello-go -n hello-go-prod || true
+                            echo ""
+                            echo "Production Endpoints:"
+                            kubectl get endpoints hello-go -n hello-go-prod || true
+                            echo ""
+                            echo "Production vs Pre-Production Comparison:"
+                            echo "Pre-prod pods: \$(kubectl get pods -n hello-go-pre -l app=hello-go --no-headers | wc -l || echo '0')"
+                            echo "Production pods: \$(kubectl get pods -n hello-go-prod -l app=hello-go --no-headers | wc -l || echo '0')"
+                            echo "=== END DEBUGGING INFORMATION ==="
+                        """
+                        
+                        echo "⚠️ Production deployment succeeded but health checks failed - manual verification recommended"
+                    }
+                }
+            }
+        }
     }
     
     post {

@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        PATH = "/opt/homebrew/bin:/Users/gaurav/.rd/bin:${env.PATH}"
     }
     
     stages {
@@ -21,9 +22,7 @@ pipeline {
                         sh """
                             if ! command -v trufflehog &> /dev/null; then
                                 echo "Installing TruffleHog..."
-                                sudo apt-get update
-                                sudo apt-get install -y python3-pip
-                                sudo pip3 install trufflehog
+                                brew install trufflehog
                             fi
                         """
                         
@@ -66,21 +65,21 @@ pipeline {
                 script {
                     try {
                         // Build the image with meaningful tags
-                        sh "docker build -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
+                        sh "/Users/gaurav/.rd/bin/docker build -t ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT} -t ${DOCKER_IMAGE}:latest ."
                         
                         // Login to DockerHub
                         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
                                                        usernameVariable: 'DOCKER_USER', 
                                                        passwordVariable: 'DOCKER_PASS')]) {
-                            sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                            sh "echo ${DOCKER_PASS} | /Users/gaurav/.rd/bin/docker login -u ${DOCKER_USER} --password-stdin"
                         }
                         
                         // Push all tags
-                        sh "docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
-                        sh "docker push ${DOCKER_IMAGE}:latest"
+                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                        sh "/Users/gaurav/.rd/bin/docker push ${DOCKER_IMAGE}:latest"
                         
                         // Logout from DockerHub
-                        sh "docker logout"
+                        sh "/Users/gaurav/.rd/bin/docker logout"
                         
                         // Print version information
                         echo """
@@ -104,12 +103,7 @@ pipeline {
                         sh """
                             if ! command -v trivy &> /dev/null; then
                                 echo "Installing Trivy..."
-                                sudo apt-get update
-                                sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-                                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                                echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
-                                sudo apt-get update
-                                sudo apt-get install -y trivy
+                                brew install trivy
                             fi
                         """
                         
