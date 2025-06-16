@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'grvsoni/hello-go'
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        GO_INSTALL_DIR = '/opt/go'
+        GO_INSTALL_DIR = '${HOME}/go-install'
     }
     
     stages {
@@ -18,8 +18,9 @@ pipeline {
                             mkdir -p ${GO_INSTALL_DIR}
                             wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
                             tar -C ${GO_INSTALL_DIR} -xzf go1.21.6.linux-amd64.tar.gz
-                            echo 'export PATH=${GO_INSTALL_DIR}/go/bin:$PATH' >> ~/.bashrc
-                            source ~/.bashrc
+                            rm go1.21.6.linux-amd64.tar.gz
+                            export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                            echo "Go installation completed. Version: $(go version)"
                         fi
                     '''
                     
@@ -82,7 +83,11 @@ pipeline {
         stage('Build') {
             steps {
                 sh '''
+                    # Setup Go environment
                     export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    echo "Using Go version: $(go version)"
+                    
+                    # Build the application
                     go build -o main
                 '''
             }
@@ -91,7 +96,11 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
+                    # Setup Go environment
                     export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    echo "Using Go version: $(go version)"
+                    
+                    # Run tests
                     go test ./...
                 '''
             }
