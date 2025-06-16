@@ -175,14 +175,38 @@ pipeline {
                             
                             if [ "\$PREVIOUS_IMAGE" != "none" ]; then
                                 echo "Previous successful image: \$PREVIOUS_IMAGE"
-                                # Store in ConfigMap for rollback reference
-                                kubectl create configmap hello-go-rollback-info -n hello-go-pre \\
-                                    --from-literal=previous-image="\$PREVIOUS_IMAGE" \\
-                                    --from-literal=previous-commit="${GIT_COMMIT_SHORT}" \\
-                                    --from-literal=rollback-timestamp="\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
-                                    --dry-run=client -o yaml | kubectl apply -f -
+                                
+                                # Extract the tag from the previous image (commit hash or latest)
+                                PREVIOUS_TAG=\$(echo "\$PREVIOUS_IMAGE" | cut -d':' -f2)
+                                echo "Previous image tag: \$PREVIOUS_TAG"
+                                
+                                # Only store if it's a different commit (not the same as current)
+                                if [ "\$PREVIOUS_TAG" != "${GIT_COMMIT_SHORT}" ]; then
+                                    echo "Storing different previous version for rollback: \$PREVIOUS_IMAGE"
+                                    
+                                    # Store in ConfigMap for rollback reference
+                                    kubectl create configmap hello-go-rollback-info -n hello-go-pre \\
+                                        --from-literal=previous-image="\$PREVIOUS_IMAGE" \\
+                                        --from-literal=previous-tag="\$PREVIOUS_TAG" \\
+                                        --from-literal=current-commit="${GIT_COMMIT_SHORT}" \\
+                                        --from-literal=rollback-timestamp="\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
+                                        --dry-run=client -o yaml | kubectl apply -f -
+                                        
+                                    echo "✅ Rollback info stored: \$PREVIOUS_IMAGE"
+                                else
+                                    echo "⚠️ Previous image has same commit tag as current deployment - no rollback info stored"
+                                fi
                             else
                                 echo "No previous deployment found - this appears to be the first deployment"
+                                
+                                # For first deployment, we'll use a placeholder that indicates no rollback available
+                                kubectl create configmap hello-go-rollback-info -n hello-go-pre \\
+                                    --from-literal=previous-image="none" \\
+                                    --from-literal=previous-tag="none" \\
+                                    --from-literal=current-commit="${GIT_COMMIT_SHORT}" \\
+                                    --from-literal=rollback-timestamp="\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
+                                    --from-literal=first-deployment="true" \\
+                                    --dry-run=client -o yaml | kubectl apply -f -
                             fi
                             
                             # Update deployment with specific image tag to force update
@@ -541,45 +565,90 @@ pipeline {
                                                 
                                                 # Try to get previous image from ConfigMap
                                                 STORED_PREVIOUS_IMAGE=\$(kubectl get configmap hello-go-rollback-info -n hello-go-pre -o jsonpath='{.data.previous-image}' 2>/dev/null || echo "none")
+                                                STORED_PREVIOUS_TAG=\$(kubectl get configmap hello-go-rollback-info -n hello-go-pre -o jsonpath='{.data.previous-tag}' 2>/dev/null || echo "none")
+                                                IS_FIRST_DEPLOYMENT=\$(kubectl get configmap hello-go-rollback-info -n hello-go-pre -o jsonpath='{.data.first-deployment}' 2>/dev/null || echo "false")
                                                 
-                                                if [ "\$STORED_PREVIOUS_IMAGE" != "none" ] && [ "\$STORED_PREVIOUS_IMAGE" != "" ]; then
-                                                    echo "Found stored previous image: \$STORED_PREVIOUS_IMAGE"
-                                                    echo "Current failed image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
-                                                    echo "Rolling back to stored previous version: \$STORED_PREVIOUS_IMAGE"
-                                                    
-                                                    # Update deployment to use stored previous image
-                                                    kubectl patch deployment hello-go -n hello-go-pre -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"hello-go\",\"image\":\"\$STORED_PREVIOUS_IMAGE\"}]}}}}"
-                                                    
+                                                echo "Stored previous image: \$STORED_PREVIOUS_IMAGE"
+                                                echo "Stored previous tag: \$STORED_PREVIOUS_TAG"
+                                                echo "Is first deployment: \$IS_FIRST_DEPLOYMENT"
+                                                
+                                                if [ "\$STORED_PREVIOUS_IMAGE" != "none" ] && [ "\$STORED_PREVIOUS_IMAGE" != "" ] && [ "\$IS_FIRST_DEPLOYMENT" != "true" ]; then
+                                                    # Verify the stored image is actually different from current
+                                                    if [ "\$STORED_PREVIOUS_TAG" != "${GIT_COMMIT_SHORT}" ]; then
+                                                        echo "Found valid previous version for rollback!"
+                                                        echo "Current failed image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                                                        echo "Rolling back to stored previous version: \$STORED_PREVIOUS_IMAGE"
+                                                        
+                                                        # Update deployment to use stored previous image
+                                                        kubectl patch deployment hello-go -n hello-go-pre -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"hello-go\",\"image\":\"\$STORED_PREVIOUS_IMAGE\"}]}}}}"
+                                                        
+                                                        ROLLBACK_TYPE="stored-previous"
+                                                    else
+                                                        echo "⚠️ Stored previous image has same commit as current - cannot rollback to same version"
+                                                        echo "This indicates the 'latest' tag issue - both point to the same image"
+                                                        echo "Manual intervention required - no valid previous version available"
+                                                        
+                                                        # In this case, we cannot rollback as there's no different version
+                                                        echo "❌ Rollback not possible - no different previous version exists"
+                                                        echo "Recommendation: Keep current deployment and fix issues manually"
+                                                        exit 1
+                                                    fi
                                                 else
-                                                    echo "No stored previous version found. Using 'latest' tag as safe fallback..."
-                                                    echo "Current failed image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
-                                                    echo "Rolling back to: ${DOCKER_IMAGE}:latest (stable version)"
-                                                    
-                                                    # Update deployment to use latest tag as fallback
-                                                    kubectl patch deployment hello-go -n hello-go-pre -p '{"spec":{"template":{"spec":{"containers":[{"name":"hello-go","image":"${DOCKER_IMAGE}:latest"}]}}}}'
+                                                    if [ "\$IS_FIRST_DEPLOYMENT" = "true" ]; then
+                                                        echo "⚠️ This is the first deployment - no previous version to rollback to"
+                                                        echo "Recommendation: Delete deployment entirely or fix current version"
+                                                        
+                                                        # Offer to delete the deployment entirely for first deployment
+                                                        echo "Removing failed first deployment..."
+                                                        kubectl delete deployment hello-go -n hello-go-pre --ignore-not-found=true
+                                                        kubectl delete service hello-go -n hello-go-pre --ignore-not-found=true
+                                                        
+                                                        echo "✅ Failed first deployment removed - environment is clean"
+                                                        ROLLBACK_TYPE="first-deployment-cleanup"
+                                                    else
+                                                        echo "⚠️ No valid stored previous version found"
+                                                        echo "This might indicate a configuration issue with version tracking"
+                                                        echo "Manual intervention required"
+                                                        exit 1
+                                                    fi
                                                 fi
                                                 
-                                                # Wait for update to complete
-                                                echo "Waiting for manual rollback to complete..."
-                                                kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
-                                                
-                                                # Verify manual rollback
-                                                RUNNING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
-                                                ROLLBACK_IMAGE=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}')
-                                                
-                                                echo "Running pods after manual rollback: \$RUNNING_PODS"
-                                                echo "Rolled back to image: \$ROLLBACK_IMAGE"
-                                                
-                                                if [ "\$RUNNING_PODS" -eq "3" ]; then
-                                                    if [ "\$STORED_PREVIOUS_IMAGE" != "none" ] && [ "\$STORED_PREVIOUS_IMAGE" != "" ]; then
+                                                # Handle different rollback types
+                                                if [ "\$ROLLBACK_TYPE" = "stored-previous" ]; then
+                                                    # Wait for update to complete
+                                                    echo "Waiting for manual rollback to complete..."
+                                                    kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
+                                                    
+                                                    # Verify manual rollback
+                                                    RUNNING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
+                                                    ROLLBACK_IMAGE=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}')
+                                                    
+                                                    echo "Running pods after manual rollback: \$RUNNING_PODS"
+                                                    echo "Rolled back to image: \$ROLLBACK_IMAGE"
+                                                    
+                                                    if [ "\$RUNNING_PODS" -eq "3" ]; then
                                                         echo "✅ Manual rollback to stored previous version completed successfully"
+                                                        echo "Previous version (\$STORED_PREVIOUS_TAG) is now active"
+                                                        kubectl get pods -n hello-go-pre -l app=hello-go
                                                     else
-                                                        echo "✅ Manual rollback to stable version completed successfully"
+                                                        echo "⚠️ Manual rollback completed but not all pods are running"
+                                                        kubectl get pods -n hello-go-pre -l app=hello-go
                                                     fi
-                                                    kubectl get pods -n hello-go-pre -l app=hello-go
-                                                else
-                                                    echo "⚠️ Manual rollback completed but not all pods are running"
-                                                    kubectl get pods -n hello-go-pre -l app=hello-go
+                                                    
+                                                elif [ "\$ROLLBACK_TYPE" = "first-deployment-cleanup" ]; then
+                                                    echo "✅ First deployment cleanup completed"
+                                                    echo "Pre-production environment is now clean"
+                                                    
+                                                    # Verify cleanup
+                                                    REMAINING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --no-headers 2>/dev/null | wc -l || echo "0")
+                                                    echo "Remaining pods: \$REMAINING_PODS"
+                                                    
+                                                    if [ "\$REMAINING_PODS" -eq "0" ]; then
+                                                        echo "✅ Environment successfully cleaned up"
+                                                    else
+                                                        echo "⚠️ Some resources may still be terminating"
+                                                        kubectl get pods -n hello-go-pre -l app=hello-go || true
+                                                    fi
                                                 fi
                                             fi
                                             
