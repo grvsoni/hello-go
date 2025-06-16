@@ -502,7 +502,7 @@ pipeline {
                                                 echo "Multiple revisions available. Attempting Kubernetes rollback..."
                                                 
                                                 # Get current revision number
-                                                CURRENT_REVISION=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')
+                                                CURRENT_REVISION=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.metadata.annotations.deployment\\.kubernetes\\.io/revision}')
                                                 echo "Current revision: \$CURRENT_REVISION"
                                                 
                                                 # Perform the rollback
@@ -516,7 +516,7 @@ pipeline {
                                                 echo "Verifying rollback completion..."
                                                 RUNNING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --field-selector=status.phase=Running --no-headers | wc -l)
                                                 ROLLED_BACK_IMAGE=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.spec.template.spec.containers[0].image}')
-                                                NEW_REVISION=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')
+                                                NEW_REVISION=\$(kubectl get deployment hello-go -n hello-go-pre -o jsonpath='{.metadata.annotations.deployment\\.kubernetes\\.io/revision}')
                                                 
                                                 echo "Running pods after rollback: \$RUNNING_PODS"
                                                 echo "Rolled back to image: \$ROLLED_BACK_IMAGE"
