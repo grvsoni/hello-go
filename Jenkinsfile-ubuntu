@@ -162,20 +162,33 @@ pipeline {
                             kubectl get nodes
                         """
                         
-                        // Apply Kubernetes manifests to pre-production
+                        // Apply Kubernetes manifests to pre-production with image update
                         sh """
                             echo "Deploying application to Pre-Production environment..."
                             
                             # Apply namespace first
                             kubectl apply -f k8s/namespace.yaml
                             
-                            # Apply deployment and service
-                            kubectl apply -f k8s/deployment.yaml
+                            # Update deployment with specific image tag to force update
+                            echo "Updating deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                            
+                            # Apply deployment with updated image
+                            sed 's|image: grvsoni/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
+                            
+                            # Apply service
                             kubectl apply -f k8s/service.yaml
+                            
+                            # Force deployment restart to ensure new image is pulled
+                            echo "Forcing deployment restart to pull new image..."
+                            kubectl rollout restart deployment/hello-go -n hello-go-pre
                             
                             # Wait for deployment to be ready
                             echo "Waiting for pre-production deployment to be ready..."
                             kubectl rollout status deployment/hello-go -n hello-go-pre --timeout=300s
+                            
+                            # Verify the image version in running pods
+                            echo "Verifying deployed image version:"
+                            kubectl get pods -n hello-go-pre -l app=hello-go -o jsonpath='{.items[*].spec.containers[*].image}' | tr ' ' '\\n' | sort -u
                             
                             # Get deployment status
                             echo "Pre-Production deployment status:"
@@ -546,19 +559,30 @@ pipeline {
                             kubectl create namespace hello-go-prod --dry-run=client -o yaml | kubectl apply -f -
                         """
                         
-                        // Deploy to production with namespace override
+                        // Deploy to production with namespace override and image update
                         sh """
                             echo "Deploying application to Production environment..."
                             
-                            # Apply deployment with production namespace override
-                            sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/deployment.yaml | kubectl apply -f -
+                            # Update deployment with production namespace and specific image tag
+                            echo "Updating production deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                            
+                            # Apply deployment with production namespace override and updated image
+                            sed -e 's/namespace: hello-go-pre/namespace: hello-go-prod/g' -e 's|image: grvsoni/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
                             
                             # Apply service with production namespace override  
                             sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/service.yaml | kubectl apply -f -
                             
+                            # Force production deployment restart to ensure new image is pulled
+                            echo "Forcing production deployment restart to pull new image..."
+                            kubectl rollout restart deployment/hello-go -n hello-go-prod
+                            
                             # Wait for production deployment to be ready
                             echo "Waiting for production deployment to be ready..."
                             kubectl rollout status deployment/hello-go -n hello-go-prod --timeout=300s
+                            
+                            # Verify the production image version in running pods
+                            echo "Verifying production deployed image version:"
+                            kubectl get pods -n hello-go-prod -l app=hello-go -o jsonpath='{.items[*].spec.containers[*].image}' | tr ' ' '\\n' | sort -u
                             
                             # Get production deployment status
                             echo "=== PRODUCTION DEPLOYMENT STATUS ==="
@@ -569,13 +593,15 @@ pipeline {
                             echo "=== PRODUCTION SERVICE INFORMATION ==="
                             kubectl describe svc hello-go -n hello-go-prod
                             
-                            # Display both environments for comparison
+                            # Display both environments for comparison with image versions
                             echo ""
                             echo "=== ENVIRONMENT COMPARISON ==="
                             echo "Pre-Production (hello-go-pre):"
                             kubectl get pods -n hello-go-pre -l app=hello-go --no-headers | wc -l | xargs echo "  Pods:"
+                            echo "  Image: \$(kubectl get pods -n hello-go-pre -l app=hello-go -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo 'N/A')"
                             echo "Production (hello-go-prod):"
                             kubectl get pods -n hello-go-prod -l app=hello-go --no-headers | wc -l | xargs echo "  Pods:"
+                            echo "  Image: \$(kubectl get pods -n hello-go-prod -l app=hello-go -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo 'N/A')"
                         """
                         
                         echo """
