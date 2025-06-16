@@ -15,12 +15,20 @@ pipeline {
                     sh '''
                         if ! command -v go &> /dev/null; then
                             echo "Installing Go..."
-                            mkdir -p ${GO_INSTALL_DIR}
-                            wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
-                            tar -C ${GO_INSTALL_DIR} -xzf go1.21.6.linux-amd64.tar.gz
-                            rm go1.21.6.linux-amd64.tar.gz
-                            export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                            GO_INSTALL_DIR="$HOME/go-install"
+                            mkdir -p "$GO_INSTALL_DIR"
+                            
+                            echo "Downloading Go..."
+                            curl -L -o go.tar.gz https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
+                            
+                            echo "Extracting Go..."
+                            tar -C "$GO_INSTALL_DIR" -xzf go.tar.gz
+                            rm go.tar.gz
+                            
+                            export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
                             echo "Go installation completed. Version: $(go version)"
+                        else
+                            echo "Go is already installed: $(go version)"
                         fi
                     '''
                     
@@ -84,7 +92,8 @@ pipeline {
             steps {
                 sh '''
                     # Setup Go environment
-                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    GO_INSTALL_DIR="$HOME/go-install"
+                    export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
                     echo "Using Go version: $(go version)"
                     
                     # Build the application
@@ -97,7 +106,8 @@ pipeline {
             steps {
                 sh '''
                     # Setup Go environment
-                    export PATH=${GO_INSTALL_DIR}/go/bin:$PATH
+                    GO_INSTALL_DIR="$HOME/go-install"
+                    export PATH="$GO_INSTALL_DIR/go/bin:$PATH"
                     echo "Using Go version: $(go version)"
                     
                     # Run tests
