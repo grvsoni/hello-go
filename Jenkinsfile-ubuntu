@@ -403,6 +403,7 @@ pipeline {
                                 • Replicas: 3
                                 
                                 Click "Proceed" to deploy to production or "Abort" to cancel.
+                                Note: Aborting will trigger a rollback of the pre-production deployment.
                             ''', 
                             ok: 'Proceed to Production',
                             submitterParameter: 'APPROVER'
@@ -411,9 +412,123 @@ pipeline {
                         echo "Production deployment approved by: ${env.APPROVER ?: 'Unknown'}"
                         
                     } catch (Exception e) {
-                        echo "Manual approval failed or timed out: ${e.message}"
+                        echo "Manual approval failed, timed out, or was aborted: ${e.message}"
+                        
+                        // Trigger rollback confirmation
+                        script {
+                            try {
+                                echo "🔄 Production deployment was not approved. Initiating pre-production rollback process..."
+                                
+                                // Ask for rollback confirmation with shorter timeout
+                                timeout(time: 2, unit: 'MINUTES') {
+                                    def rollbackChoice = input(
+                                        message: '''
+                                            ⚠️ ROLLBACK CONFIRMATION REQUIRED
+                                            
+                                            Production deployment was aborted/failed.
+                                            
+                                            Do you want to rollback the pre-production deployment?
+                                            
+                                            • YES: Remove pre-production deployment (clean state)
+                                            • NO: Keep pre-production deployment for manual review
+                                        ''',
+                                        ok: 'Choose Action',
+                                        parameters: [
+                                            choice(
+                                                name: 'ROLLBACK_ACTION',
+                                                choices: ['YES - Rollback Pre-Production', 'NO - Keep Pre-Production'],
+                                                description: 'Select rollback action'
+                                            )
+                                        ],
+                                        submitterParameter: 'ROLLBACK_APPROVER'
+                                    )
+                                    
+                                    if (rollbackChoice.ROLLBACK_ACTION.startsWith('YES')) {
+                                        echo "🔄 Rollback approved by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
+                                        
+                                        // Perform pre-production rollback
+                                        sh """
+                                            echo "=== STARTING PRE-PRODUCTION ROLLBACK ==="
+                                            
+                                            # Show current state before rollback
+                                            echo "Current pre-production state:"
+                                            kubectl get pods -n hello-go-pre -l app=hello-go || true
+                                            kubectl get svc -n hello-go-pre hello-go || true
+                                            
+                                            echo ""
+                                            echo "Performing rollback..."
+                                            
+                                            # Delete deployment
+                                            kubectl delete deployment hello-go -n hello-go-pre --ignore-not-found=true
+                                            
+                                            # Delete service
+                                            kubectl delete service hello-go -n hello-go-pre --ignore-not-found=true
+                                            
+                                            # Wait for cleanup
+                                            sleep 10
+                                            
+                                            # Verify cleanup
+                                            echo "Verifying rollback completion..."
+                                            REMAINING_PODS=\$(kubectl get pods -n hello-go-pre -l app=hello-go --no-headers 2>/dev/null | wc -l || echo "0")
+                                            REMAINING_SERVICES=\$(kubectl get svc -n hello-go-pre hello-go --no-headers 2>/dev/null | wc -l || echo "0")
+                                            
+                                            echo "Remaining pods: \$REMAINING_PODS"
+                                            echo "Remaining services: \$REMAINING_SERVICES"
+                                            
+                                            if [ "\$REMAINING_PODS" -eq "0" ] && [ "\$REMAINING_SERVICES" -eq "0" ]; then
+                                                echo "✅ Pre-production rollback completed successfully"
+                                            else
+                                                echo "⚠️ Some resources may still be terminating"
+                                                kubectl get all -n hello-go-pre -l app=hello-go || true
+                                            fi
+                                            
+                                            echo ""
+                                            echo "=== ROLLBACK SUMMARY ==="
+                                            echo "🔄 Action: Pre-production deployment rolled back"
+                                            echo "📦 Image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                                            echo "👤 Rollback approved by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
+                                            echo "⏰ Rollback completed at: \$(date)"
+                                            echo "🧹 Environment: Clean state restored"
+                                        """
+                                        
+                                        echo "🎯 Pre-production rollback completed successfully!"
+                                        
+                                    } else {
+                                        echo "📋 Rollback declined by: ${rollbackChoice.ROLLBACK_APPROVER ?: 'Unknown'}"
+                                        echo "⚠️ Pre-production deployment will remain active for manual review"
+                                        
+                                        sh """
+                                            echo "=== PRE-PRODUCTION DEPLOYMENT PRESERVED ==="
+                                            echo "The following resources remain active in hello-go-pre namespace:"
+                                            kubectl get pods -n hello-go-pre -l app=hello-go || true
+                                            kubectl get svc -n hello-go-pre hello-go || true
+                                            echo ""
+                                            echo "Manual cleanup can be performed later if needed:"
+                                            echo "  kubectl delete deployment hello-go -n hello-go-pre"
+                                            echo "  kubectl delete service hello-go -n hello-go-pre"
+                                        """
+                                    }
+                                }
+                                
+                            } catch (Exception rollbackException) {
+                                echo "Rollback confirmation timed out or failed: ${rollbackException.message}"
+                                echo "⚠️ Pre-production deployment remains active - manual cleanup may be required"
+                                
+                                sh """
+                                    echo "=== ROLLBACK TIMEOUT - MANUAL ACTION REQUIRED ==="
+                                    echo "Pre-production deployment status:"
+                                    kubectl get pods -n hello-go-pre -l app=hello-go || true
+                                    kubectl get svc -n hello-go-pre hello-go || true
+                                    echo ""
+                                    echo "To manually clean up later:"
+                                    echo "  kubectl delete deployment hello-go -n hello-go-pre"
+                                    echo "  kubectl delete service hello-go -n hello-go-pre"
+                                """
+                            }
+                        }
+                        
                         currentBuild.result = 'ABORTED'
-                        error("Production deployment was not approved")
+                        error("Production deployment was not approved - pipeline aborted")
                     }
                 }
             }
