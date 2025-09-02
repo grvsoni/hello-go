@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_IMAGE = 'grvsoni/hello-go'
+        DOCKER_IMAGE = 'revanthharness/hello-go'
         GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         PATH = "/opt/homebrew/bin:/Users/gaurav/.rd/bin:${env.PATH}"
     }
@@ -18,14 +18,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install TruffleHog if not present
-                        sh """
-                            if ! command -v trufflehog &> /dev/null; then
-                                echo "Installing TruffleHog..."
-                                brew install trufflehog
-                            fi
-                        """
-                        
                         // Run TruffleHog scan
                         sh """
                             echo "Starting security scan..."
@@ -99,14 +91,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install Trivy if not present
-                        sh """
-                            if ! command -v trivy &> /dev/null; then
-                                echo "Installing Trivy..."
-                                brew install trivy
-                            fi
-                        """
-                        
                         // Run Trivy scan on the image
                         sh """
                             echo "Starting container security scan..."
@@ -213,7 +197,7 @@ pipeline {
                             echo "Updating deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
                             
                             # Apply deployment with updated image
-                            sed 's|image: grvsoni/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
+                            sed 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
                             
                             # Apply service
                             kubectl apply -f k8s/service.yaml
@@ -729,7 +713,7 @@ pipeline {
                             echo "Updating production deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
                             
                             # Apply deployment with production namespace override and updated image
-                            sed -e 's/namespace: hello-go-pre/namespace: hello-go-prod/g' -e 's|image: grvsoni/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
+                            sed -e 's/namespace: hello-go-pre/namespace: hello-go-prod/g' -e 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
                             
                             # Apply service with production namespace override  
                             sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/service.yaml | kubectl apply -f -
