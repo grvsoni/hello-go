@@ -197,7 +197,7 @@ pipeline {
                             echo "Updating deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
                             
                             # Apply deployment with updated image
-                            sed 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
+                            sed 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment-remote.yaml | kubectl apply -f -
                             
                             # Apply service
                             kubectl apply -f k8s/service.yaml
@@ -713,7 +713,7 @@ pipeline {
                             echo "Updating production deployment with new image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
                             
                             # Apply deployment with production namespace override and updated image
-                            sed -e 's/namespace: hello-go-pre/namespace: hello-go-prod/g' -e 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment.yaml | kubectl apply -f -
+                            sed -e 's/namespace: hello-go-pre/namespace: hello-go-prod/g' -e 's|image: revanthharness/hello-go:latest|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g' k8s/deployment-remote.yaml | kubectl apply -f -
                             
                             # Apply service with production namespace override  
                             sed 's/namespace: hello-go-pre/namespace: hello-go-prod/g' k8s/service.yaml | kubectl apply -f -
