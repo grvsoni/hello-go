@@ -309,7 +309,7 @@ pipeline {
                                     echo "Using pod: \$POD_NAME for health check"
                                     
                                     # Use a unique port to avoid conflicts with parallel execution
-                                    HEALTH_CHECK_PORT=\$((8080 + RANDOM % 1000))
+                                    HEALTH_CHECK_PORT=\$((9000 + RANDOM % 1000))
                                     
                                     # Start port-forward in background
                                     kubectl port-forward pod/\$POD_NAME -n hello-go-pre \$HEALTH_CHECK_PORT:6001 &
