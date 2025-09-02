@@ -131,13 +131,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Check if kubectl is available
-                        sh """
-                            if ! command -v kubectl &> /dev/null; then
-                                echo "kubectl not found. Please install kubectl to deploy to Kubernetes."
-                                exit 1
-                            fi
-                        """
                         
                         // Check cluster connectivity
                         sh """
