@@ -1,0 +1,24 @@
+pipeline:
+  name: test-template-3
+  identifier: testtemplate3
+  tags: {}
+  template:
+    templateRef: account.AntBuildSCM
+    versionLabel: v1.1
+    templateInputs:
+      variables:
+        - name: BUILD_FILE
+          type: String
+          value: <+input>
+        - name: BUILD_PATH
+          type: String
+          value: <+input>
+        - name: BUILD_ACTION
+          type: String
+          value: <+input>
+      properties:
+        ci:
+          codebase:
+            build: <+input>
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
