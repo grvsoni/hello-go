@@ -1,0 +1,42 @@
+pipeline:
+  name: test-template-8
+  identifier: test_template_8
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  description: ''
+  tags: {}
+  template:
+    templateRef: account.go_app_cicd_pipeline
+    versionLabel: v1.0
+    templateInputs:
+      variables:
+      - name: app_name
+        type: String
+        value: Hello from Jenkins!
+      - name: docker_registry
+        type: String
+        value: <+input>
+      - name: preprod_environment
+        type: String
+        value: <+input>
+      - name: production_environment
+        type: String
+        value: <+input>
+      - name: preprod_infrastructure
+        type: String
+        value: <+input>
+      - name: production_infrastructure
+        type: String
+        value: <+input>
+      - name: preprod_namespace
+        type: String
+        value: <+input>
+      - name: production_namespace
+        type: String
+        value: <+input>
+      - name: production_replicas
+        type: String
+        value: <+input>
+      - name: approval_user_group
+        type: String
+        value: <+input>
