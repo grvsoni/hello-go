@@ -24,7 +24,7 @@ pipeline:
         value: <+input>
       - name: PATH
         type: String
-        value: <+input>
+        value: buildRequesterUserId-value
       properties:
         ci:
           codebase:
