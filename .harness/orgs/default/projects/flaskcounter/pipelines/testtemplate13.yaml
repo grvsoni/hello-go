@@ -19,12 +19,6 @@ pipeline:
         - name: BUILD_ACTION
           type: String
           value: build
-        - name: JAVA_HOME
-          type: String
-          value: <+input>
-        - name: PATH
-          type: String
-          value: <+input>
       properties:
         ci:
           codebase:
