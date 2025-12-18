@@ -18,7 +18,7 @@ pipeline:
         value: '1'
       - name: BUILD_ACTION
         type: String
-        value: build
+        value: build_bundle
       properties:
         ci:
           codebase:
