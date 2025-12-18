@@ -15,7 +15,7 @@ pipeline:
         value: build.xml
       - name: BUILD_PATH
         type: String
-        value: '1'
+        value: buildRequesterUserId-value
       - name: BUILD_ACTION
         type: String
         value: build_bundle
