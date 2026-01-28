@@ -1,0 +1,547 @@
+pipeline:
+  name: DCT_MW_AppDMachineAgent_Component_Template
+  identifier: DCT_MW_AppDMachineAgent_Component_Template
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  tags:
+    migrated_using: harness-unified-migrator
+    ai_generated: 'true'
+  stages:
+  - stage:
+      name: CD_Deploy
+      identifier: CD_Deploy
+      description: AppDynamics Machine Agent deployment pipeline
+      type: Deployment
+      spec:
+        deploymentType: Ssh
+        service:
+          serviceRef: <+input>
+          serviceInputs: <+input>
+        environment:
+          environmentRef: <+input>
+          deployToAll: false
+          environmentInputs: <+input>
+          serviceOverrideInputs: <+input>
+          infrastructureDefinitions: <+input>
+        execution:
+          steps:
+          - stepGroup:
+              name: Install_Phase
+              identifier: Install_Phase
+              strategy:
+                repeat:
+                  items: <+stage.output.hosts>
+                  maxConcurrency: 1
+                  partitionSize: 1
+                  unit: Count
+              steps:
+              - stepGroup:
+                  name: Install_Phase_Group
+                  identifier: Install_Phase_Group
+                  strategy:
+                    repeat:
+                      items: <+repeat.partition>
+                  steps:
+                  - step:
+                      type: Command
+                      timeout: 10m
+                      strategy:
+                        repeat:
+                          items: <+stage.output.hosts>
+                      spec:
+                        host: <+repeat.item>
+                        onDelegate: false
+                        environmentVariables:
+                        - name: installRoot
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentVersion
+                          type: String
+                          value: <+input>
+                        - name: isVersionInUse
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentLogBase
+                          type: String
+                          value: <+input>
+                        - name: WorkingDirectory
+                          type: String
+                          value: <+input>
+                        outputVariables: []
+                        commandUnits:
+                        - identifier: Validate_Machine_Agent_Version
+                          name: Validate Machine Agent Version
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "if [[ ${isVersionInUse} = false ]]; then\n\
+                                  \   echo \"ERROR: Component version is not in use.\
+                                  \ It may have expired\"\n   exit 1\nfi\necho \"\
+                                  Machine Agent version validation passed\""
+                        - identifier: Download_AppD_Binary
+                          name: Download AppD Binary
+                          type: Copy
+                          spec:
+                            sourceType: Artifact
+                            destinationPath: ${WorkingDirectory}
+                        - identifier: Extract_Tarball
+                          name: Extract Tarball
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: 'mkdir -p ${installRoot}/AppDynamics/M${appDMachineAgentVersion}
+
+                                  cd ${WorkingDirectory}
+
+                                  tar -xhvpf machineagent-${appDMachineAgentVersion}.tar
+                                  -C ${installRoot}/AppDynamics/M${appDMachineAgentVersion}
+
+                                  echo "Tarball extracted successfully"'
+                        - identifier: Replace_Configuration_Tokens
+                          name: Replace Configuration Tokens
+                          type: Copy
+                          spec:
+                            sourceType: Config
+                            destinationPath: ${installRoot}/AppDynamics/M${appDMachineAgentVersion}
+                        - identifier: Post_Install_Setup
+                          name: Post Install Setup
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: 'cp -TRv ${installRoot}/AppDynamics/M${appDMachineAgentVersion}/MachineAgent${appDMachineAgentVersion}
+                                  ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/scripts/startMachineAgent.sh
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/scripts/stopMachineAgent.sh
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/bin/machine-agent
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/monitors/WFCpuMonitor/WFCpuMonitor.sh
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/monitors/ProcessMonitor/get_process_names.sh
+
+                                  chmod 754 ${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}/monitors/UCPJMXExtension/get_UCPJXM_Configurations.sh
+
+                                  mkdir -p ${appDMachineAgentLogBase}
+
+                                  rm -rf ${installRoot}/AppDynamics/M${appDMachineAgentVersion}
+
+                                  echo "Post install setup completed"'
+                      name: Deploy_Install
+                      identifier: Deploy_Install
+          - stepGroup:
+              name: Activation_Phase
+              identifier: Activation_Phase
+              strategy:
+                repeat:
+                  items: <+stage.output.hosts>
+                  maxConcurrency: 1
+                  partitionSize: 1
+                  unit: Count
+              steps:
+              - stepGroup:
+                  name: Activation_Phase_Group
+                  identifier: Activation_Phase_Group
+                  strategy:
+                    repeat:
+                      items: <+repeat.partition>
+                  steps:
+                  - step:
+                      type: Command
+                      timeout: 10m
+                      strategy:
+                        repeat:
+                          items: <+stage.output.hosts>
+                      spec:
+                        host: <+repeat.item>
+                        onDelegate: false
+                        environmentVariables:
+                        - name: installRoot
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentVersion
+                          type: String
+                          value: <+input>
+                        - name: isVersionInUse
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentLogBase
+                          type: String
+                          value: <+input>
+                        outputVariables: []
+                        commandUnits:
+                        - identifier: Validate_Agent_Version_Activation
+                          name: Validate Agent Version Activation
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "if [[ ${isVersionInUse} = false ]]; then\n\
+                                  \   echo \"ERROR: AppDynamics agent version not\
+                                  \ in use. Please upgrade\"\n   exit 1\nfi\necho\
+                                  \ \"Agent version validation passed for activation\""
+                        - identifier: Stop_Machine_Agent
+                          name: Stop Machine Agent
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "cd ${installRoot}/AppDynamics\nif [ -f ${installRoot}/AppDynamics/MachineAgent/scripts/stopMachineAgent.sh\
+                                  \ ]; then\n   ${installRoot}/AppDynamics/MachineAgent/scripts/stopMachineAgent.sh\n\
+                                  else\n  echo \"Cannot find the MachineAgent stop\
+                                  \ script but stopping any running Machine Agent\
+                                  \ process owned by App\"\n  if [ -f /usr/ucb/ps\
+                                  \ ];then\n    pids=`/usr/ucb/ps auxwww|grep machineagent.jar|grep\
+                                  \ -v grep|awk '{print $2}'`\n  else\n    pids=`ps\
+                                  \ -eaf|grep machineagent.jar|grep -v grep|awk '{print\
+                                  \ $2}'`\n  fi\n  for pid in `echo $pids`\n  do\n\
+                                  \    echo \"stopping pid >$pid<\"\n    kill -9 $pid\n\
+                                  \  done\nfi"
+                        - identifier: Create_Symlinks
+                          name: Create Symlinks
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "cd ${installRoot}/AppDynamics\nif [ -d MachineAgent${appDMachineAgentVersion}\
+                                  \ ]; then \n    if [ ! MachineAgent -ef MachineAgent${appDMachineAgentVersion}\
+                                  \ ];then \n        rm -rf MachineAgent\n       \
+                                  \ ln -s MachineAgent${appDMachineAgentVersion} MachineAgent\n\
+                                  \    else \n        echo \"MachineAgent symlink\
+                                  \ Already exists with the Expected version\"\n \
+                                  \   fi\nelse\n    echo \"ERROR: Make sure MachineAgent${appDMachineAgentVersion}\
+                                  \ is deployed before activation.\" \n    exit 1\n\
+                                  fi\necho \"Symlinks created successfully\""
+                        - identifier: Setup_Log_Directory
+                          name: Setup Log Directory
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "user=`ls -ld ${appDMachineAgentLogBase} |\
+                                  \ awk '{print $3}'`\nif [ -d ${appDMachineAgentLogBase}\
+                                  \ ]; then\n        if [ \"$user\" == \"root\" ];\
+                                  \ then\n            mv ${appDMachineAgentLogBase}\
+                                  \ ${appDMachineAgentLogBase}-`date +\"%Y%m%d\"`\n\
+                                  \        fi\nfi\ncd ${installRoot}/AppDynamics/MachineAgent\n\
+                                  if [ -d logs ]; then\n    rm -rf logs\nfi\nif [\
+                                  \ ! logs -ef \"${appDMachineAgentLogBase}\" ];then\
+                                  \ \n  echo 'Creating or modifying the Logs symlink'\n\
+                                  \  rm -f logs\n  ln -s ${appDMachineAgentLogBase}\
+                                  \ logs\nelse \n  echo \"symlink for logs already\
+                                  \ exists with the Expected Path: ${appDMachineAgentLogBase}\"\
+                                  \nfi"
+                        - identifier: Setup_Cron_Job
+                          name: Setup Cron Job
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "crontab -l | grep -i 'MachineAgent'| grep\
+                                  \ -q 'startMachineAgent' && cronappd=exist || cronappd=not_exist\n\
+                                  echo \"AppD MachineAgent Cron Job $cronappd\"\n\
+                                  if [ \"$cronappd\" == \"not_exist\" ]; then\n  echo\
+                                  \ \"Adding Cronjob for MachineAgent\"\n  crontab\
+                                  \ -l | { cat; echo \"*/15 * * * * ${installRoot}/AppDynamics/MachineAgent/scripts/startMachineAgent.sh\
+                                  \ > /dev/null 2>&1\"; } | crontab -\n  crontab -l\
+                                  \ | grep -i 'MachineAgent'| grep -q 'startMachineAgent'\
+                                  \ && echo 'Cron Job entry Added now' || echo 'Unable\
+                                  \ to add entry please check crontab'\nelse\n   echo\
+                                  \ \"Removing existing Cronjob for MachineAgent\"\
+                                  \n   crontab -l | sed '/startMachineAgent.sh/d'\
+                                  \ | crontab -\n   echo \"Adding new Cronjob for\
+                                  \ MachineAgent - ${installRoot}/AppDynamics/MachineAgent/scripts/startMachineAgent.sh\"\
+                                  \n   crontab -l | { cat; echo \"*/15 * * * * ${installRoot}/AppDynamics/MachineAgent/scripts/startMachineAgent.sh\
+                                  \ > /dev/null 2>&1\"; } | crontab -\n   crontab\
+                                  \ -l | grep -i 'MachineAgent'| grep -q 'startMachineAgent'\
+                                  \ && echo 'Cron Job entry Added now' || echo 'Unable\
+                                  \ to add entry please check crontab'\nfi"
+                        - identifier: Configure_Process_Monitor
+                          name: Configure Process Monitor
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "cd ${installRoot}/AppDynamics/MachineAgent/monitors/ProcessMonitor/\n\
+                                  if [ -f get_process_names.sh ]; then\n  ${installRoot}/AppDynamics/MachineAgent/monitors/ProcessMonitor/get_process_names.sh\n\
+                                  fi"
+                        - identifier: Configure_UCP_JMX
+                          name: Configure UCP JMX
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "cd ${installRoot}/AppDynamics/MachineAgent/monitors/UCPJMXExtension/\n\
+                                  if [ -f get_UCPJXM_Configurations.sh ]; then\n \
+                                  \ ${installRoot}/AppDynamics/MachineAgent/monitors/UCPJMXExtension/get_UCPJXM_Configurations.sh\n\
+                                  fi"
+                        - identifier: Start_Machine_Agent
+                          name: Start Machine Agent
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: '${installRoot}/AppDynamics/MachineAgent/scripts/startMachineAgent.sh
+
+                                  exit 0'
+                      name: Deploy_Activate
+                      identifier: Deploy_Activate
+          - stepGroup:
+              name: Validation_Phase
+              identifier: Validation_Phase
+              strategy:
+                repeat:
+                  items: <+stage.output.hosts>
+                  maxConcurrency: 1
+                  partitionSize: 1
+                  unit: Count
+              steps:
+              - stepGroup:
+                  name: Validation_Phase_Group
+                  identifier: Validation_Phase_Group
+                  strategy:
+                    repeat:
+                      items: <+repeat.partition>
+                  steps:
+                  - step:
+                      type: Command
+                      timeout: 10m
+                      strategy:
+                        repeat:
+                          items: <+stage.output.hosts>
+                      spec:
+                        host: <+repeat.item>
+                        onDelegate: false
+                        environmentVariables:
+                        - name: installRoot
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentVersion
+                          type: String
+                          value: <+input>
+                        outputVariables: []
+                        commandUnits:
+                        - identifier: Validate_Installation
+                          name: Validate Installation
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "TARGET_DIR=\"${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}\"\
+                                  \nif [ ! -d \"${TARGET_DIR}\" ]; then\n  echo \"\
+                                  ERROR: ${TARGET_DIR} doesn't exist.\"\n  exit 1\n\
+                                  fi\necho \"INFO: Validation successful. ${TARGET_DIR}\
+                                  \ exists.\""
+                        - identifier: Validate_Activation
+                          name: Validate Activation
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "TARGET_DIR=\"${installRoot}/AppDynamics/MachineAgent${appDMachineAgentVersion}\"\
+                                  \nTARGET_LINK=\"${installRoot}/AppDynamics/MachineAgent\"\
+                                  \nif [ ! -d \"${TARGET_LINK}\" ]; then\n  echo \"\
+                                  ERROR: ${TARGET_LINK} doesn't exist.\"\n  exit 1\n\
+                                  fi\nif [ ! ${TARGET_LINK} -ef ${TARGET_DIR} ]; then\n\
+                                  \  echo \"ERROR: ${TARGET_LINK} is not pointing\
+                                  \ to ${TARGET_DIR}. \"\n  exit 1\nfi\necho \"INFO:\
+                                  \ Validation successful. ${TARGET_LINK} exists and\
+                                  \ pointing to ${TARGET_DIR}.\""
+                        - identifier: Validate_Agent_Running
+                          name: Validate Agent Running
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "if ps -ef | grep -v grep | grep machineagent.jar\
+                                  \ > /dev/null 2>&1\nthen\n    echo \"Machine agent\
+                                  \ is running\"\nelse\n    echo \"WARNING: Machine\
+                                  \ agent process not detected\"\nfi"
+                      name: Deploy_Validate
+                      identifier: Deploy_Validate
+          - stepGroup:
+              name: Cleanup_Phase
+              identifier: Cleanup_Phase
+              strategy:
+                repeat:
+                  items: <+stage.output.hosts>
+                  maxConcurrency: 1
+                  partitionSize: 1
+                  unit: Count
+              steps:
+              - stepGroup:
+                  name: Cleanup_Phase_Group
+                  identifier: Cleanup_Phase_Group
+                  strategy:
+                    repeat:
+                      items: <+repeat.partition>
+                  steps:
+                  - step:
+                      type: Command
+                      timeout: 10m
+                      strategy:
+                        repeat:
+                          items: <+stage.output.hosts>
+                      spec:
+                        host: <+repeat.item>
+                        onDelegate: false
+                        environmentVariables:
+                        - name: installRoot
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentVersion
+                          type: String
+                          value: <+input>
+                        - name: pr_dryrun
+                          type: String
+                          value: 'false'
+                        - name: application.name
+                          type: String
+                          value: <+input>
+                        - name: resource.work.dir
+                          type: String
+                          value: <+input>
+                        outputVariables: []
+                        commandUnits:
+                        - identifier: Cleanup_Old_Versions
+                          name: Cleanup Old Versions
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "exec 3>&1 4>&2 >> ${resource.work.dir}/${application.name}-cleanup.log\
+                                  \ 2>&1\necho \"---------------------------------AppDynamics---MachineAgent------------------\"\
+                                  \ndryrun=\"${pr_dryrun}\"\n[[ -z \"$dryrun\" ]]\
+                                  \ && dryrun=\"false\"\n\nif [ -d ${installRoot}/AppDynamics\
+                                  \ ]; then \n    cd ${installRoot}/AppDynamics\n\
+                                  else\n    echo \"The directory ${installRoot}/AppDynamics\
+                                  \ doesn't exist. Nothing to delete.\"\n    exit\
+                                  \ 1\nfi\n\nMachineAgentVersion=\"MachineAgent${appDMachineAgentVersion}\"\
+                                  \nsymlink=\"MachineAgent\"\n\nif [[ -d \"$MachineAgentVersion\"\
+                                  \ ]] ; then \n    if [[ ! -L \"$symlink\" ]] ; then\
+                                  \   \n        echo \"ERROR: Symlink $symlink either\
+                                  \ doesn't exist or isn't a symlink. Exiting.\"\n\
+                                  \        exit 1\n    fi   \n    if [[ \"$symlink\"\
+                                  \ -ef \"$MachineAgentVersion\" ]] ; then \n    \
+                                  \    installed_directories=$(find . -maxdepth 1\
+                                  \ -type d -name 'MachineAgent*' ! -name \"*${appDMachineAgentVersion}\"\
+                                  \ ! -name \".\")\n        if [[ -z \"$installed_directories\"\
+                                  \ ]] ; then \n            echo \"INFO: Only the\
+                                  \ active \"$MachineAgentVersion\" , was detected.\
+                                  \ Nothing to delete. Done.\"\n            exit 0\n\
+                                  \        fi\n        [[ \"$dryrun\" = \"true\" ]]\
+                                  \ && echo \"*** This is a dry run. Nothing will\
+                                  \ be deleted. ***\"\n        while read dir; do\
+                                  \  \n            if [[ -d \"$dir\" ]] ; then\n \
+                                  \               echo \"Directory to be deleted:\
+                                  \ ${dir}\"\n                [[ \"$dryrun\" = \"\
+                                  false\" ]] && rm -rf \"$dir\"\n            else\n\
+                                  \                echo \"ERROR: Directory $dir did\
+                                  \ not exist.\"\n                [[ \"$dryrun\" =\
+                                  \ \"false\" ]] && exit 1\n            fi\n     \
+                                  \   done <<<\"$installed_directories\" \n      \
+                                  \  exit 0\n    else\n        echo \"ERROR: $MachineAgentVersion\
+                                  \  is not activated yet. Can not perform cleanup.\"\
+                                  \n        exit 1 \n    fi\nelse \n    echo \"ERROR:\
+                                  \ Make sure the required version of ${MachineAgentVersion}\
+                                  \ is deployed in ${installRoot}/AppDynamics before\
+                                  \ cleanup. Exiting.\" \n    exit 1\nfi"
+                      name: Deploy_Cleanup
+                      identifier: Deploy_Cleanup
+          rollbackSteps:
+          - stepGroup:
+              name: Rollback_Activation_Phase
+              identifier: Rollback_Activation_Phase
+              strategy:
+                repeat:
+                  items: <+stage.output.hosts>
+                  maxConcurrency: 1
+                  partitionSize: 1
+                  unit: Count
+              steps:
+              - stepGroup:
+                  name: Rollback_Activation_Phase_Group
+                  identifier: Rollback_Activation_Phase_Group
+                  strategy:
+                    repeat:
+                      items: <+repeat.partition>
+                  steps:
+                  - step:
+                      type: Command
+                      timeout: 10m
+                      strategy:
+                        repeat:
+                          items: <+stage.output.hosts>
+                      spec:
+                        host: <+repeat.item>
+                        onDelegate: false
+                        environmentVariables:
+                        - name: installRoot
+                          type: String
+                          value: <+input>
+                        - name: appDMachineAgentVersion
+                          type: String
+                          value: <+input>
+                        outputVariables: []
+                        commandUnits:
+                        - identifier: Rollback_Stop_Machine_Agent
+                          name: Rollback Stop Machine Agent
+                          type: Script
+                          spec:
+                            shell: Bash
+                            source:
+                              type: Inline
+                              spec:
+                                script: "if [ -f ${installRoot}/AppDynamics/MachineAgent/scripts/stopMachineAgent.sh\
+                                  \ ]; then\n   ${installRoot}/AppDynamics/MachineAgent/scripts/stopMachineAgent.sh\n\
+                                  else\n  echo \"Cannot find the MachineAgent stop\
+                                  \ script but stopping any running Machine Agent\
+                                  \ process owned by App\"\n  if [ -f /usr/ucb/ps\
+                                  \ ];then\n    pids=`/usr/ucb/ps auxwww|grep machineagent.jar|grep\
+                                  \ -v grep|awk '{print $2}'`\n  else\n    pids=`ps\
+                                  \ -eaf|grep machineagent.jar|grep -v grep|awk '{print\
+                                  \ $2}'`\n  fi\n  for pid in `echo $pids`\n  do\n\
+                                  \    echo \"stopping pid >$pid<\"\n    kill -9 $pid\n\
+                                  \  done\nfi"
+                      name: Rollback_Deploy_Activate
+                      identifier: Rollback_Deploy_Activate
+      failureStrategies:
+      - onFailure:
+          errors:
+          - AllErrors
+          action:
+            type: StageRollback
