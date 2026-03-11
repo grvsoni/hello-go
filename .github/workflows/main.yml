@@ -1,0 +1,22 @@
+name: Hello CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Hello world
+        run: echo "Hello World from GitHub Actions!"
+
+      - name: Run tests
+        run: |
+          # replace with your test command, for example:
+          # npm ci && npm test
+          echo "No tests configured — replace this step with your test command"
