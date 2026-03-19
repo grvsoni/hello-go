@@ -1,0 +1,168 @@
+pipeline:
+  name: bamboo_mapping_9
+  identifier: bamboo_mapping_9
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  description: ''
+  tags: {}
+  stages:
+  - stage:
+      name: ServiceEdge-TEAM01
+      identifier: ServiceEdge_TEAM01
+      description: 'Bamboo env: ServiceEdge-TEAM01'
+      template:
+        templateRef: account.AWX_Deploy
+        versionLabel: '1.1'
+        templateInputs:
+          type: Deployment
+          spec:
+            service:
+              serviceRef: <+input>
+              serviceInputs: <+input>
+            execution:
+              steps:
+              - stepGroup:
+                  identifier: AWX_Deployment
+                  template:
+                    templateInputs:
+                      variables:
+                      - name: Git
+                        type: String
+                        default: GitHub
+                        value: <+input>.default(GitHub).allowedValues(GitHub,Stash)
+          variables:
+          - name: BUILD_NUMBER
+            type: String
+            value: <+input>
+          - name: Env_Name
+            type: String
+            value: Service Edge Preprod
+          - name: Infra_Name
+            type: String
+            value: nac_serviceedge_preprod_machinekey
+          - name: Repo_Branch_Name
+            type: String
+            value: master
+          - name: Deployment_Env_File
+            type: String
+            value: <+input>
+  - stage:
+      name: ServiceEdge-TEAM02
+      identifier: ServiceEdge_TEAM02
+      description: 'Bamboo env: ServiceEdge-TEAM02'
+      template:
+        templateRef: account.AWX_Deploy
+        versionLabel: '1.1'
+        templateInputs:
+          type: Deployment
+          spec:
+            service:
+              serviceRef: <+input>
+              serviceInputs: <+input>
+            execution:
+              steps:
+              - stepGroup:
+                  identifier: AWX_Deployment
+                  template:
+                    templateInputs:
+                      variables:
+                      - name: Git
+                        type: String
+                        default: GitHub
+                        value: <+input>.default(GitHub).allowedValues(GitHub,Stash)
+          variables:
+          - name: BUILD_NUMBER
+            type: String
+            value: <+input>
+          - name: Env_Name
+            type: String
+            value: North America Core_Service Edge_Preprod
+          - name: Infra_Name
+            type: String
+            value: Service Edge Preprod
+          - name: Repo_Branch_Name
+            type: String
+            value: master
+          - name: Deployment_Env_File
+            type: String
+            value: <+input>
+  - stage:
+      name: ServiceEdge-TEAM03
+      identifier: ServiceEdge_TEAM03
+      description: 'Bamboo env: ServiceEdge-TEAM03'
+      template:
+        templateRef: account.AWX_Deploy
+        versionLabel: '1.1'
+        templateInputs:
+          type: Deployment
+          spec:
+            service:
+              serviceRef: <+input>
+              serviceInputs: <+input>
+            execution:
+              steps:
+              - stepGroup:
+                  identifier: AWX_Deployment
+                  template:
+                    templateInputs:
+                      variables:
+                      - name: Git
+                        type: String
+                        default: GitHub
+                        value: <+input>.default(GitHub).allowedValues(GitHub,Stash)
+          variables:
+          - name: BUILD_NUMBER
+            type: String
+            value: <+input>
+          - name: Env_Name
+            type: String
+            value: North America Core_Service Edge_Preprod
+          - name: Infra_Name
+            type: String
+            value: Service Edge Preprod
+          - name: Repo_Branch_Name
+            type: String
+            value: master
+          - name: Deployment_Env_File
+            type: String
+            value: <+input>
+  - stage:
+      name: ServiceEdge-TEAM04
+      identifier: ServiceEdge_TEAM04
+      description: 'Bamboo env: ServiceEdge-TEAM04'
+      template:
+        templateRef: account.AWX_Deploy
+        versionLabel: '1.1'
+        templateInputs:
+          type: Deployment
+          spec:
+            service:
+              serviceRef: <+input>
+              serviceInputs: <+input>
+            execution:
+              steps:
+              - stepGroup:
+                  identifier: AWX_Deployment
+                  template:
+                    templateInputs:
+                      variables:
+                      - name: Git
+                        type: String
+                        default: GitHub
+                        value: <+input>.default(GitHub).allowedValues(GitHub,Stash)
+          variables:
+          - name: BUILD_NUMBER
+            type: String
+            value: <+input>
+          - name: Env_Name
+            type: String
+            value: Service Edge Preprod
+          - name: Infra_Name
+            type: String
+            value: North America Core_Service Edge_Preprod
+          - name: Repo_Branch_Name
+            type: String
+            value: master
+          - name: Deployment_Env_File
+            type: String
+            value: <+input>
