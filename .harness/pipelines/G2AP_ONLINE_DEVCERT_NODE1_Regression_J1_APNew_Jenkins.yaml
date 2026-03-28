@@ -1,0 +1,139 @@
+pipeline:
+  name: G2AP_ONLINE_DEVCERT_NODE1_Regression_J1_APNew_Jenkins
+  identifier: G2AP_ONLINE_DEVCERT_NODE1_Regression_J1_APNew_Jenkins_6ae829
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  tags:
+    migrated_using: Standalone-Migrator
+    source: jenkins_freestyle
+    job_type: project
+    timestamp: '2026-03-28T23:22:31.634261'
+    jenkins_node: dev3
+  properties:
+    ci:
+      codebase:
+        repoName: <+input>
+        connectorRef: <+input>
+        build: <+input>
+  stages:
+  - stage:
+      name: ci
+      identifier: ci
+      description: ''
+      type: CI
+      spec:
+        cloneCodebase: true
+        caching:
+          enabled: false
+          override: false
+          paths: []
+        buildIntelligence:
+          enabled: false
+        execution:
+          steps:
+          - step:
+              type: Run
+              name: Shell Script
+              identifier: Shell_Script
+              spec:
+                shell: Sh
+                command: '#!/bin/bash
+
+                  ls -ltr
+
+                  scp $WORKSPACE/qag2-repo/APNew/* svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/G2QA
+
+                  scp $WORKSPACE/qag2-repo/FileNames/All_APNew_Files.list svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew
+
+                  rm -r qag2-repo
+
+                  ssh svc_qatest@10.125.224.42 chmod -R 700 /home/svc_qatest/DevCERT_Auto_Test_APNew/G2QA/*.c
+
+                  ## Run the Transactions - Provide the .list file to be executed
+                  after the G2O_Execute_Loop.sh
+
+                  ssh -T -l svc_qatest -p 22 10.125.224.42 ''./DevCERT_Auto_Test_APNew/G2O_Execute_Loops.sh
+                  All_APNew_Files.list'''
+          - step:
+              type: Run
+              name: Shell Script 2
+              identifier: Shell_Script_2
+              spec:
+                shell: Sh
+                command: 'scp -r svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/Amex*
+                  $WORKSPACE/
+
+                  scp -r svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/AP_*
+                  $WORKSPACE/
+
+                  scp -r svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/APV*
+                  $WORKSPACE/
+
+                  scp -r svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/Paynet*
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/SummaryFile.txt
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/DetailFile.txt
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/body
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/summary
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/subject
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/run_g2test.sh
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/g2test.log
+                  $WORKSPACE/
+
+                  scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/automated_test.cmd
+                  $WORKSPACE/
+
+                  #cd $WORKSPACE
+
+                  #mkdir logs
+
+                  #scp svc_qatest@10.125.224.42:/home/svc_qatest/DevCERT_Auto_Test_APNew/*.xml
+                  $WORKSPACE/logs/'
+          - step:
+              type: Run
+              name: Publish JUnit Results
+              identifier: junit_report
+              spec:
+                shell: Sh
+                command: 'echo "JUnit test results: *.xml"
+
+                  '
+                reports:
+                  type: JUnit
+                  spec:
+                    paths:
+                    - '*.xml'
+        platform:
+          os: Linux
+          arch: Amd64
+        runtime:
+          type: Cloud
+          spec: {}
+  notificationRules:
+  - name: Email Notification (ExtendedEmailPublisher)
+    identifier: email_notify_1
+    pipelineEvents:
+    - type: PipelineEnd
+    - type: PipelineFailed
+    notificationMethod:
+      type: Email
+      spec:
+        recipients:
+        - deepeshls@tsys.com
+        - patelm@tsys.com
+        - sainathareddy@tsys.com
+        - sshalavadi@tsys.com
+    enabled: true
