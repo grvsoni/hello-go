@@ -1,0 +1,174 @@
+template:
+  name: G2AP Online Test Execution
+  identifier: g2ap_online_test_execution
+  versionLabel: '1.0'
+  type: Pipeline
+  spec:
+    concurrency:
+      capacity: 1
+    variables:
+    - name: git_branch
+      type: String
+      description: Git branch to checkout (e.g., DEV or PROD)
+      value: DEV
+    - name: git_connector
+      type: String
+      description: Harness Git connector reference
+      value: github_connector
+    - name: remote_host
+      type: String
+      description: Target host IP for SSH/SCP
+      value: 10.125.224.29
+    - name: remote_user
+      type: String
+      description: SSH user for remote host
+      value: svc_qatest
+    - name: remote_base_path
+      type: String
+      description: Full remote directory path (e.g., /home/svc_qatest/Auto_Test_Smoke)
+      value: /home/svc_qatest/Auto_Test_Smoke
+    - name: remote_test_dir_name
+      type: String
+      description: Directory name relative to user home for SSH execution
+      value: Auto_Test_Smoke
+    - name: source_dir
+      type: String
+      description: Directory inside repo to copy to remote G2QA (e.g., AP or APNew)
+      value: AP
+    - name: list_file_name
+      type: String
+      description: Name of the list file to execute
+      value: Smoke_Files.list
+    - name: list_file_source_path
+      type: String
+      description: Optional path inside repo to the list file to copy (e.g., FileNames/All_APNew_Files.list)
+      value: ''
+    - name: result_prefixes
+      type: String
+      description: Space-separated list of file prefixes to fetch back (e.g., Auto_*
+        or Amex* AP_*)
+      value: Auto_*
+    - name: email_recipients
+      type: String
+      description: Comma-separated list of email recipients
+      value: deepeshls@tsys.com, patelm@tsys.com, sainathareddy@tsys.com, sshalavadi@tsys.com
+    notificationRules:
+    - name: Email Notification
+      identifier: email_notification
+      pipelineEvents:
+      - type: PipelineEnd
+      - type: PipelineFailed
+      notificationMethod:
+        type: Email
+        spec:
+          recipients:
+          - <+pipeline.variables.email_recipients>
+          subject: <+pipeline.stages.run_tests.spec.execution.steps.extract_email_content.output.outputVariables.EMAIL_SUBJECT>
+          body: <+pipeline.stages.run_tests.spec.execution.steps.extract_email_content.output.outputVariables.EMAIL_BODY>
+      enabled: true
+    stages:
+    - stage:
+        name: Run Tests
+        identifier: run_tests
+        type: CI
+        spec:
+          cloneCodebase: false
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+            - step:
+                type: GitClone
+                name: Clone Repository
+                identifier: clone_repo
+                spec:
+                  connectorRef: <+pipeline.variables.git_connector>
+                  repoName: gsapdev-qag2
+                  build:
+                    type: branch
+                    spec:
+                      branch: <+pipeline.variables.git_branch>
+                  cloneDirectory: qag2-repo
+            - step:
+                type: Run
+                name: Execute Remote Tests
+                identifier: execute_remote_tests
+                spec:
+                  shell: Bash
+                  command: "#!/bin/bash\nls -ltr\nscp ./qag2-repo/<+pipeline.variables.source_dir>/*\
+                    \ <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/G2QA\n\
+                    \n# Conditionally copy the list file if a source path is provided\n\
+                    if [ -n \"<+pipeline.variables.list_file_source_path>\" ]; then\n\
+                    \  scp ./qag2-repo/<+pipeline.variables.list_file_source_path>\
+                    \ <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>\n\
+                    fi\n\nrm -r qag2-repo\nssh <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>\
+                    \ chmod -R 700 <+pipeline.variables.remote_base_path>/G2QA/*.c\n\
+                    ## Run the Transactions - Provide the .list file to be executed\
+                    \ after the G2O_Execute_Loop.sh\nssh -T -l <+pipeline.variables.remote_user>\
+                    \ -p 22 <+pipeline.variables.remote_host> './<+pipeline.variables.remote_test_dir_name>/G2O_Execute_Loops.sh\
+                    \ <+pipeline.variables.list_file_name>'"
+            - step:
+                type: Run
+                name: Fetch Results
+                identifier: fetch_results
+                spec:
+                  shell: Bash
+                  command: "# Loop through prefixes to support multiple patterns (e.g.,\
+                    \ Amex* AP_* APV* Paynet*)\nfor prefix in <+pipeline.variables.result_prefixes>;\
+                    \ do\n  scp -r <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/$prefix\
+                    \ ./\ndone\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/SummaryFile.txt\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/DetailFile.txt\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/body\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/summary\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/subject\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/run_g2test.sh\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/g2test.log\
+                    \ ./\nscp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/automated_test.cmd\
+                    \ ./\n#cd ./\n#mkdir logs\n#scp <+pipeline.variables.remote_user>@<+pipeline.variables.remote_host>:<+pipeline.variables.remote_base_path>/*.xml\
+                    \ ./logs/"
+            - step:
+                type: Run
+                name: Extract Email Content
+                identifier: extract_email_content
+                spec:
+                  shell: Bash
+                  command: "SUBJECT=\"Test Execution Results\"\n[ -f \"subject\" ]\
+                    \ && SUBJECT=$(cat subject)\n\nTOTAL_TESTS=0\nFAILED_TESTS=0\n\
+                    PASSED_TESTS=0\nif ls *.xml 1> /dev/null 2>&1; then\n  TOTAL_TESTS=$(cat\
+                    \ *.xml | grep -o 'tests=\"[0-9]*\"' | awk -F'\"' '{sum+=$2} END\
+                    \ {print sum+0}')\n  FAILURES=$(cat *.xml | grep -o 'failures=\"\
+                    [0-9]*\"' | awk -F'\"' '{sum+=$2} END {print sum+0}')\n  ERRORS=$(cat\
+                    \ *.xml | grep -o 'errors=\"[0-9]*\"' | awk -F'\"' '{sum+=$2}\
+                    \ END {print sum+0}')\n  FAILED_TESTS=$((FAILURES + ERRORS))\n\
+                    \  PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))\nfi\n\nBODY_FILE_CONTENT=\"\
+                    Please see attached results.\"\n[ -f \"body\" ] && BODY_FILE_CONTENT=$(cat\
+                    \ body)\n\ncat <<EOF >> \"$HARNESS_EXPORT_ENV\"\nEMAIL_SUBJECT='$SUBJECT'\n\
+                    EMAIL_BODY='Total tests = $TOTAL_TESTS\nPassed tests = $PASSED_TESTS\n\
+                    Failed tests = $FAILED_TESTS\n\n$BODY_FILE_CONTENT'\nEOF"
+                  outputVariables:
+                  - name: EMAIL_SUBJECT
+                  - name: EMAIL_BODY
+            - step:
+                type: Run
+                name: Publish JUnit Results
+                identifier: publish_junit_results
+                spec:
+                  shell: Bash
+                  command: echo "Publishing test results from *.xml"
+                  reports:
+                    type: JUnit
+                    spec:
+                      paths:
+                      - '*.xml'
+        failureStrategies:
+        - onFailure:
+            errors:
+            - AllErrors
+            action:
+              type: Abort
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
