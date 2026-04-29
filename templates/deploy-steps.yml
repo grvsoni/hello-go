@@ -1,0 +1,44 @@
+# ============================================================
+# templates/deploy-steps.yml
+# Reusable deploy steps template
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+    default: 'app'
+
+  - name: environment
+    type: string
+    default: 'staging'
+
+  - name: region
+    type: string
+    default: 'uk-south'
+
+steps:
+  - script: |
+      echo "▶ Deploying '${{ parameters.appName }}' to '${{ parameters.environment }}' in '${{ parameters.region }}'"
+    displayName: 'Print Deploy Info'
+
+  - download: current
+    artifact: drop
+    displayName: 'Download Build Artifact'
+
+  - script: |
+      echo "Running pre-deploy health checks..."
+      echo "Target environment: ${{ parameters.environment }}"
+      echo "Region: ${{ parameters.region }}"
+      echo "Health check passed ✔ (dummy)"
+    displayName: 'Pre-Deploy Health Check'
+
+  - script: |
+      echo "Deploying application..."
+      echo "az webapp deploy --name ${{ parameters.appName }} --slot ${{ parameters.environment }} (dummy)"
+      echo "Deployment complete ✔"
+    displayName: 'Deploy Application'
+
+  - script: |
+      echo "Running smoke tests on ${{ parameters.environment }}..."
+      echo "Smoke test passed ✔ (dummy)"
+    displayName: 'Post-Deploy Smoke Test'
