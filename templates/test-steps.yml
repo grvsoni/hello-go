@@ -1,0 +1,35 @@
+# ============================================================
+# templates/test-steps.yml
+# Reusable test steps template
+# ============================================================
+
+parameters:
+  - name: appName
+    type: string
+    default: 'app'
+
+  - name: runIntegrationTests
+    type: boolean
+    default: false
+
+steps:
+  - script: echo "▶ Running tests for '${{ parameters.appName }}'"
+    displayName: 'Print Test Info'
+
+  - script: |
+      echo "Running unit tests..."
+      echo "npm run test:unit (dummy)"
+      echo "All unit tests passed ✔"
+    displayName: 'Run Unit Tests'
+
+  - ${{ if eq(parameters.runIntegrationTests, true) }}:
+    - script: |
+        echo "Running integration tests..."
+        echo "npm run test:integration (dummy)"
+        echo "All integration tests passed ✔"
+      displayName: 'Run Integration Tests'
+
+  - script: |
+      echo "Generating test coverage report..."
+      echo "Coverage: 85% (dummy)"
+    displayName: 'Generate Coverage Report'
