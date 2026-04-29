@@ -1,0 +1,37 @@
+# ============================================================
+# templates/build-steps.yml
+# Reusable build steps template
+# ============================================================
+
+parameters:
+  - name: buildConfiguration
+    type: string
+    default: 'Release'
+
+  - name: appName
+    type: string
+    default: 'app'
+
+steps:
+  - script: echo "▶ Starting build for '${{ parameters.appName }}'"
+    displayName: 'Print Build Info'
+
+  - script: |
+      echo "Installing dependencies..."
+      echo "npm install (dummy)"
+    displayName: 'Install Dependencies'
+
+  - script: |
+      echo "Building application in '${{ parameters.buildConfiguration }}' mode..."
+      echo "npm run build -- --configuration=${{ parameters.buildConfiguration }} (dummy)"
+    displayName: 'Build Application'
+
+  - script: |
+      echo "Creating build artifact..."
+      mkdir -p $(Build.ArtifactStagingDirectory)/drop
+      echo "Build: ${{ parameters.appName }} @ $(Build.BuildNumber)" > $(Build.ArtifactStagingDirectory)/drop/build-info.txt
+    displayName: 'Package Artifact'
+
+  - publish: $(Build.ArtifactStagingDirectory)/drop
+    artifact: drop
+    displayName: 'Publish Artifact'
