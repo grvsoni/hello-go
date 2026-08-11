@@ -1,0 +1,130 @@
+pipeline:
+  name: templates_orders-service
+  identifier: templates_orders_service_ab8fa7
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  tags:
+    migrated_using: Standalone-Migrator
+    llm_provider: bedrock
+    llm_model: bedrock/global.anthropic.claude-opus-4-6-v1
+    timestamp: '2026-08-11T10:30:45.283322'
+    conversion_type: standard
+  properties:
+    ci:
+      codebase:
+        repoName: <+input>
+        connectorRef: <+input>
+        build: <+input>
+  stages:
+  - stage:
+      name: ci
+      identifier: ci
+      description: ''
+      type: CI
+      spec:
+        cloneCodebase: true
+        caching:
+          enabled: false
+          override: false
+          paths: []
+        buildIntelligence:
+          enabled: false
+        execution:
+          steps:
+          - step:
+              type: Run
+              name: Build Application
+              identifier: build_application
+              spec:
+                connectorRef: account.harnessImage
+                image: maven:3.9-eclipse-temurin-17
+                shell: Bash
+                command: "echo \"Building, <+pipeline.variables.APP_NAME>!\"\n\nBUILD_TOOL=\"\
+                  <+pipeline.variables.BUILD_TOOL>\"\nAPP_NAME=\"<+pipeline.variables.APP_NAME>\"\
+                  \nENVIRONMENT=\"<+pipeline.variables.ENVIRONMENT>\"\n\necho \"========================================\"\
+                  \necho \"Building ${APP_NAME} (${ENVIRONMENT}) with ${BUILD_TOOL}\"\
+                  \necho \"========================================\"\n\ncase \"${BUILD_TOOL}\"\
+                  \ in\n  maven)\n    mvn -B clean package\n    ;;\n  gradle)\n  \
+                  \  ./gradlew clean build\n    ;;\n  npm)\n    npm ci && npm run\
+                  \ build\n    ;;\n  *)\n    echo \"buildApp: unsupported buildTool\
+                  \ '${BUILD_TOOL}'. Use one of: maven, gradle, npm\"\n    exit 1\n\
+                  \    ;;\nesac\n\necho \"Artifact ${APP_NAME}-${ENVIRONMENT}.jar\
+                  \ produced.\""
+          - parallel:
+            - step:
+                type: Test
+                name: Unit Tests
+                identifier: unit_tests
+                spec:
+                  command: mvn -B test
+                  shell: Sh
+                  connectorRef: account.harnessImage
+                  image: maven:3.9-eclipse-temurin-17
+                  intelligenceMode: true
+                  globs:
+                  - src/test/java/**/*.java
+                  reports:
+                    type: JUnit
+                    spec:
+                      paths:
+                      - '**/surefire-reports/*.xml'
+                  envVariables:
+                    APP_NAME: <+pipeline.variables.APP_NAME>
+            - step:
+                type: Run
+                name: Lint
+                identifier: lint
+                spec:
+                  connectorRef: account.harnessImage
+                  image: maven:3.9-eclipse-temurin-17
+                  shell: Sh
+                  command: 'echo "Running lint tests for <+pipeline.variables.APP_NAME>"
+
+                    mvn -B checkstyle:check'
+          - step:
+              type: Run
+              name: Deploy Application
+              identifier: deploy_application
+              spec:
+                connectorRef: account.harnessImage
+                image: bitnami/kubectl:latest
+                shell: Bash
+                command: "echo \"============================================\"\n\
+                  echo \"Deploying ${APP_NAME}-${ENVIRONMENT}.jar to ${ENVIRONMENT}\
+                  \ (${REPLICAS} replica(s))\"\necho \"============================================\"\
+                  \n\nif [ \"$ENVIRONMENT\" = \"production\" ] && [ \"$REPLICAS\"\
+                  \ -lt 2 ]; then\n  echo \"WARNING: Deploying to production with\
+                  \ fewer than 2 replicas.\"\nfi\n\necho \"Running: kubectl -n ${ENVIRONMENT}\
+                  \ set image deploy/${APP_NAME} ${APP_NAME}=${APP_NAME}-${ENVIRONMENT}.jar\"\
+                  \nkubectl -n \"${ENVIRONMENT}\" set image \"deploy/${APP_NAME}\"\
+                  \ \"${APP_NAME}=${APP_NAME}-${ENVIRONMENT}.jar\"\n\necho \"${APP_NAME}\
+                  \ is now live in ${ENVIRONMENT}.\""
+                envVariables:
+                  APP_NAME: <+pipeline.variables.APP_NAME>
+                  ENVIRONMENT: <+pipeline.variables.ENVIRONMENT>
+                  REPLICAS: <+pipeline.variables.REPLICAS>
+        platform:
+          os: Linux
+          arch: Amd64
+        runtime:
+          type: Cloud
+          spec: {}
+      failureStrategies:
+      - onFailure:
+          errors:
+          - AllErrors
+          action:
+            type: StageRollback
+  variables:
+  - name: APP_NAME
+    type: String
+    value: <+input>.default(orders-service)
+  - name: BUILD_TOOL
+    type: String
+    value: <+input>.default(maven)
+  - name: ENVIRONMENT
+    type: String
+    value: <+input>.default(dev)
+  - name: REPLICAS
+    type: String
+    value: <+input>.default(2)
