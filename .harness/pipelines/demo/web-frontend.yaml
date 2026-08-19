@@ -1,0 +1,196 @@
+pipeline:
+  name: web-frontend
+  identifier: templates_web_frontend_0d221fb9
+  projectIdentifier: flaskcounter
+  orgIdentifier: default
+  description: 'Migrated from Jenkins: templates/web-frontend'
+  tags:
+    migrated_using: Standalone-Migrator
+    source: jenkins
+    source_job: templates/web-frontend
+    source_job_path: templates/web-frontend
+    llm_provider: harness-intelligence
+    llm_model: harness-intelligence/harness-default
+    timestamp: '2026-08-19T17:49:31.835938'
+    conversion_type: harness_intelligence
+  properties:
+    ci:
+      codebase:
+        connectorRef: <+input>
+        build: <+input>
+  variables:
+  - name: APP_NAME
+    type: String
+    description: Application to build & deploy
+    required: false
+    value: <+input>.default(web-frontend)
+  - name: BUILD_TOOL
+    type: String
+    description: Build tool to use
+    required: false
+    value: <+input>.default(npm).allowedValues(npm,gradle,maven)
+  - name: ENVIRONMENT
+    type: String
+    description: Target environment
+    required: false
+    value: <+input>.default(staging).allowedValues(staging,dev,production)
+  - name: REPLICAS
+    type: String
+    description: Number of replicas to deploy
+    required: false
+    value: <+input>.default(1)
+  stages:
+  - stage:
+      name: Build
+      identifier: Build
+      type: CI
+      spec:
+        cloneCodebase: false
+        platform:
+          os: Linux
+          arch: Amd64
+        runtime:
+          type: Cloud
+          spec: {}
+        execution:
+          steps:
+          - step:
+              type: Run
+              name: Build Application
+              identifier: Build_Application
+              spec:
+                shell: Bash
+                command: "echo \"Building <+pipeline.variables.APP_NAME> (<+pipeline.variables.ENVIRONMENT>)\
+                  \ with <+pipeline.variables.BUILD_TOOL>\"\n\n# Build commands based\
+                  \ on selected tool\ncase \"<+pipeline.variables.BUILD_TOOL>\" in\n\
+                  \  maven)\n    echo \"Would run: mvn -B clean package\"\n    ;;\n\
+                  \  gradle)\n    echo \"Would run: ./gradlew clean build\"\n    ;;\n\
+                  \  npm)\n    echo \"Would run: npm ci && npm run build\"\n    ;;\n\
+                  \  *)\n    echo \"Unsupported build tool: <+pipeline.variables.BUILD_TOOL>\"\
+                  \n    exit 1\n    ;;\nesac\n\necho \"Artifact <+pipeline.variables.APP_NAME>-<+pipeline.variables.ENVIRONMENT>.jar\
+                  \ produced.\"\n"
+      failureStrategies:
+      - onFailure:
+          errors:
+          - AllErrors
+          action:
+            type: MarkAsFailure
+  - stage:
+      name: Test
+      identifier: Test
+      type: CI
+      spec:
+        cloneCodebase: false
+        platform:
+          os: Linux
+          arch: Amd64
+        runtime:
+          type: Cloud
+          spec: {}
+        execution:
+          steps:
+          - parallel:
+            - step:
+                type: Run
+                name: Unit Tests
+                identifier: Unit_Tests
+                spec:
+                  shell: Bash
+                  command: "echo \"Running unit tests for <+pipeline.variables.APP_NAME>\"\
+                    \n\n# Unit test command based on build tool\ncase \"<+pipeline.variables.BUILD_TOOL>\"\
+                    \ in\n  maven)\n    echo \"Would run: mvn -B test\"\n    ;;\n\
+                    \  gradle)\n    echo \"Would run: ./gradlew test\"\n    ;;\n \
+                    \ npm)\n    echo \"Would run: npm test\"\n    ;;\nesac\n\necho\
+                    \ \"unit tests passed for <+pipeline.variables.APP_NAME>.\"\n"
+            - step:
+                type: Run
+                name: Integration Tests
+                identifier: Integration_Tests
+                spec:
+                  shell: Bash
+                  command: "echo \"Running integration tests for <+pipeline.variables.APP_NAME>\"\
+                    \n\n# Integration test command based on build tool\ncase \"<+pipeline.variables.BUILD_TOOL>\"\
+                    \ in\n  maven)\n    echo \"Would run: mvn -B verify -Pintegration\"\
+                    \n    ;;\n  gradle)\n    echo \"Would run: ./gradlew integrationTest\"\
+                    \n    ;;\n  npm)\n    echo \"Would run: npm run test:integration\"\
+                    \n    ;;\nesac\n\necho \"integration tests passed for <+pipeline.variables.APP_NAME>.\"\
+                    \n"
+      failureStrategies:
+      - onFailure:
+          errors:
+          - AllErrors
+          action:
+            type: MarkAsFailure
+  - stage:
+      name: Deploy
+      identifier: Deploy
+      type: Deployment
+      spec:
+        deploymentType: Kubernetes
+        service:
+          serviceRef: <+input>
+        environment:
+          environmentRef: <+input>
+          deployToAll: false
+          infrastructureDefinitions:
+          - identifier: <+input>
+        execution:
+          steps:
+          - step:
+              type: ShellScript
+              name: Deploy Application
+              identifier: Deploy_Application
+              spec:
+                shell: Bash
+                source:
+                  type: Inline
+                  spec:
+                    script: "echo \"Deploying <+pipeline.variables.APP_NAME>-<+pipeline.variables.ENVIRONMENT>.jar\
+                      \ to <+pipeline.variables.ENVIRONMENT> (<+pipeline.variables.REPLICAS>\
+                      \ replica(s))\"\n\n# Production warning\nif [ \"<+pipeline.variables.ENVIRONMENT>\"\
+                      \ == \"production\" ] && [ \"<+pipeline.variables.REPLICAS>\"\
+                      \ -lt 2 ]; then\n  echo \"WARNING: Deploying to production with\
+                      \ fewer than 2 replicas.\"\nfi\n\n# Deploy command\necho \"\
+                      Would run: kubectl -n <+pipeline.variables.ENVIRONMENT> set\
+                      \ image deploy/<+pipeline.variables.APP_NAME> <+pipeline.variables.APP_NAME>=<+pipeline.variables.APP_NAME>-<+pipeline.variables.ENVIRONMENT>.jar\"\
+                      \n\necho \"<+pipeline.variables.APP_NAME> is now live in <+pipeline.variables.ENVIRONMENT>.\"\
+                      \n"
+          - step:
+              type: ShellScript
+              name: Send Notification
+              identifier: Send_Notification
+              spec:
+                shell: Bash
+                source:
+                  type: Inline
+                  spec:
+                    script: 'echo "Notifying #frontend: <+pipeline.variables.APP_NAME>
+                      finished with status SUCCESS"
+
+                      echo "Slack -> #frontend: [SUCCESS] <+pipeline.variables.APP_NAME>
+                      pipeline complete."
+
+                      '
+          rollbackSteps:
+          - step:
+              type: ShellScript
+              name: Rollback
+              identifier: Rollback
+              spec:
+                shell: Bash
+                source:
+                  type: Inline
+                  spec:
+                    script: 'echo "Rolling back <+pipeline.variables.APP_NAME> in
+                      <+pipeline.variables.ENVIRONMENT>"
+
+                      echo "Would run: kubectl -n <+pipeline.variables.ENVIRONMENT>
+                      rollout undo deploy/<+pipeline.variables.APP_NAME>"
+
+                      '
+      failureStrategies:
+      - onFailure:
+          errors:
+          - AllErrors
+          action:
+            type: StageRollback
